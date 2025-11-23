@@ -119,55 +119,92 @@ GLuint createGalaxyCubemap() {
     glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
 
     const int size = 1024;  // Resolution per face
+    srand(12345);  // Fixed seed for consistent stars across runs
 
     // Create procedural galaxy/starfield for each face
-    for (unsigned int i = 0; i < 6; i++) {
+    for (unsigned int face = 0; face < 6; face++) {
         unsigned char* data = new unsigned char[size * size * 3];
 
-        // Generate stars and nebula
-        for (int y = 0; y < size; y++) {
-            for (int x = 0; x < size; x++) {
-                int idx = (y * size + x) * 3;
+        // Initialize to pure black space
+        for (int i = 0; i < size * size * 3; i++) {
+            data[i] = 0;
+        }
 
-                // Base dark blue/purple space color
-                float u = (float)x / size;
-                float v = (float)y / size;
+        // Add stars
+        int numStars = 2000 + (rand() % 1000);  // 2000-3000 stars per face
+        for (int s = 0; s < numStars; s++) {
+            int x = rand() % size;
+            int y = rand() % size;
+            int idx = (y * size + x) * 3;
 
-                // Dark space background with slight variation
-                unsigned char baseR = (unsigned char)(5 + 10 * sin(u * 3.14f + i));
-                unsigned char baseG = (unsigned char)(5 + 8 * sin(v * 2.71f + i));
-                unsigned char baseB = (unsigned char)(15 + 15 * sin(u * v * 5.0f + i));
+            // Star brightness and color
+            float brightness = 0.5f + ((float)(rand() % 100) / 100.0f) * 0.5f;  // 0.5 to 1.0
 
-                data[idx + 0] = baseR;
-                data[idx + 1] = baseG;
-                data[idx + 2] = baseB;
+            // Slight color variation (bluish, white, or slightly yellow)
+            float colorTint = (float)(rand() % 100) / 100.0f;
+            unsigned char r, g, b;
 
-                // Add random stars
-                float random = (float)(rand() % 10000) / 10000.0f;
-                if (random > 0.998f) {  // 0.2% chance for bright star
-                    unsigned char brightness = (unsigned char)(200 + rand() % 56);
-                    data[idx + 0] = brightness;
-                    data[idx + 1] = brightness;
-                    data[idx + 2] = brightness;
-                }
-                else if (random > 0.995f) {  // 0.3% chance for dimmer star
-                    unsigned char brightness = (unsigned char)(100 + rand() % 100);
-                    data[idx + 0] = brightness;
-                    data[idx + 1] = brightness;
-                    data[idx + 2] = brightness;
-                }
+            if (colorTint < 0.7f) {
+                // White stars (most common)
+                r = g = b = (unsigned char)(brightness * 255);
+            }
+            else if (colorTint < 0.85f) {
+                // Bluish stars
+                r = (unsigned char)(brightness * 200);
+                g = (unsigned char)(brightness * 220);
+                b = (unsigned char)(brightness * 255);
+            }
+            else {
+                // Yellowish stars
+                r = (unsigned char)(brightness * 255);
+                g = (unsigned char)(brightness * 240);
+                b = (unsigned char)(brightness * 200);
+            }
 
-                // Add purple/blue nebula clouds
-                float nebula = sin(u * 20.0f + i) * cos(v * 15.0f + i) * 0.5f + 0.5f;
-                if (nebula > 0.7f) {
-                    data[idx + 0] += (unsigned char)(nebula * 40);  // Red
-                    data[idx + 1] += (unsigned char)(nebula * 20);  // Green
-                    data[idx + 2] += (unsigned char)(nebula * 60);  // Blue
+            data[idx + 0] = r;
+            data[idx + 1] = g;
+            data[idx + 2] = b;
+
+            // Add glow for brighter stars
+            if (brightness > 0.8f) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
+                            int nidx = (ny * size + nx) * 3;
+                            unsigned char glow = (unsigned char)(brightness * 60);
+                            data[nidx + 0] = std::max(data[nidx + 0], (unsigned char)(r * 0.3f));
+                            data[nidx + 1] = std::max(data[nidx + 1], (unsigned char)(g * 0.3f));
+                            data[nidx + 2] = std::max(data[nidx + 2], (unsigned char)(b * 0.3f));
+                        }
+                    }
                 }
             }
         }
 
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB,
+        // Add very subtle nebula wisps (optional - much more subtle)
+        for (int y = 0; y < size; y += 4) {
+            for (int x = 0; x < size; x += 4) {
+                float u = (float)x / size;
+                float v = (float)y / size;
+
+                // Very subtle nebula calculation
+                float noise = sin(u * 50.0f + face * 1.5f) * cos(v * 40.0f + face * 2.0f);
+                noise = noise * 0.5f + 0.5f;  // Normalize to 0-1
+
+                if (noise > 0.85f) {  // Very high threshold
+                    int idx = (y * size + x) * 3;
+                    unsigned char tint = (unsigned char)((noise - 0.85f) * 40);  // Very subtle
+                    data[idx + 0] = std::min(255, data[idx + 0] + tint / 3);      // Slight red
+                    data[idx + 1] = std::min(255, data[idx + 1] + tint / 4);      // Less green
+                    data[idx + 2] = std::min(255, data[idx + 2] + tint);          // More blue
+                }
+            }
+        }
+
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGB,
                      size, size, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
 
         delete[] data;
@@ -179,7 +216,7 @@ GLuint createGalaxyCubemap() {
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
-    printf("✓ Created procedural galaxy skybox\n");
+    printf("✓ Created procedural galaxy skybox with realistic starfield\n");
     return textureID;
 }
 
