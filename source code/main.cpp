@@ -1,3 +1,7 @@
+// Define math constants for Windows (MSVC)
+#define _USE_MATH_DEFINES
+#include <cmath>
+
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include <vector>
