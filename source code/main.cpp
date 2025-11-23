@@ -17,7 +17,23 @@ GLuint vao = 0;
 GLuint earthTexture = 0;
 GLuint ebo = 0;  // Element buffer object for indices
 GLfloat rotate_y = 0.0f;
-int width = 800, height = 600;
+
+// 4K Resolution
+int width = 3840, height = 2160;
+
+// Camera variables
+vec3 cameraPos = vec3(0.0f, 0.0f, 7.0f);
+vec3 cameraFront = vec3(0.0f, 0.0f, -1.0f);
+vec3 cameraUp = vec3(0.0f, 1.0f, 0.0f);
+float cameraSpeed = 5.0f;
+
+// Mouse control
+float yaw = -90.0f;
+float pitch = 0.0f;
+float lastX = (float)width / 2.0f;
+float lastY = (float)height / 2.0f;
+bool firstMouse = true;
+float sensitivity = 0.1f;
 
 // --------------------------------------------------
 // Texture loading
@@ -188,9 +204,74 @@ void generateEarthSphere() {
 }
 
 // --------------------------------------------------
+// Input Callbacks
+// --------------------------------------------------
+void processInput(GLFWwindow* window, float deltaTime) {
+    // Close window on ESC
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    float velocity = cameraSpeed * deltaTime;
+
+    // WASD movement
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        cameraPos = cameraPos + (cameraFront * velocity);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        cameraPos = cameraPos - (cameraFront * velocity);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        cameraPos = cameraPos - (normalise(cross(cameraFront, cameraUp)) * velocity);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        cameraPos = cameraPos + (normalise(cross(cameraFront, cameraUp)) * velocity);
+
+    // Q/E for up/down
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+        cameraPos = cameraPos - (cameraUp * velocity);
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+        cameraPos = cameraPos + (cameraUp * velocity);
+}
+
+void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    float xposf = (float)xpos;
+    float yposf = (float)ypos;
+
+    if (firstMouse) {
+        lastX = xposf;
+        lastY = yposf;
+        firstMouse = false;
+    }
+
+    float xoffset = xposf - lastX;
+    float yoffset = lastY - yposf; // Reversed: y-coordinates go from bottom to top
+    lastX = xposf;
+    lastY = yposf;
+
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    yaw += xoffset;
+    pitch += yoffset;
+
+    // Constrain pitch
+    if (pitch > 89.0f)
+        pitch = 89.0f;
+    if (pitch < -89.0f)
+        pitch = -89.0f;
+
+    // Update camera front vector
+    vec3 front;
+    front.v[0] = cos(yaw * ONE_DEG_IN_RAD) * cos(pitch * ONE_DEG_IN_RAD);
+    front.v[1] = sin(pitch * ONE_DEG_IN_RAD);
+    front.v[2] = sin(yaw * ONE_DEG_IN_RAD) * cos(pitch * ONE_DEG_IN_RAD);
+    cameraFront = normalise(front);
+}
+
+// --------------------------------------------------
 // Render
 // --------------------------------------------------
-void drawScene(float delta) {
+void drawScene(float delta, GLFWwindow* window) {
+    // Process keyboard/mouse input
+    processInput(window, delta);
+
     // Update rotation (Earth spins)
     rotate_y = fmodf(rotate_y + 15.0f * delta, 360.0f);
 
@@ -212,8 +293,10 @@ void drawScene(float delta) {
     int view_loc  = glGetUniformLocation(shaderProgramID, "view");
     int proj_loc  = glGetUniformLocation(shaderProgramID, "proj");
 
-    mat4 view = translate(identity_mat4(), vec3(0.0f, 0.0f, -7.0f));
-    mat4 proj = perspective(45.0f, (float)width / height, 0.1f, 100.0f);
+    // Use camera position and look-at direction
+    vec3 center = cameraPos + cameraFront;
+    mat4 view = look_at(cameraPos, center, cameraUp);
+    mat4 proj = perspective(45.0f, (float)width / height, 0.1f, 1000.0f);
 
     // Earth rotation (around Y axis for proper rotation)
     mat4 model = rotate_y_deg(identity_mat4(), rotate_y);
@@ -266,6 +349,10 @@ int main() {
         return -1;
     }
 
+    // Setup mouse input
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     shaderProgramID = CompileShaders();
 
     // Load Earth texture
@@ -277,7 +364,11 @@ int main() {
     generateEarthSphere();
 
     printf("\n=== Starting Render Loop ===\n");
-    printf("Controls: Close window to exit\n\n");
+    printf("Controls:\n");
+    printf("  WASD - Move camera\n");
+    printf("  Q/E - Move up/down\n");
+    printf("  Mouse - Look around\n");
+    printf("  ESC - Exit\n\n");
 
     float lastTime = (float)glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
@@ -285,7 +376,7 @@ int main() {
         float delta = now - lastTime;
         lastTime = now;
 
-        drawScene(delta);
+        drawScene(delta, window);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

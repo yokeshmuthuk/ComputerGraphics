@@ -18,9 +18,9 @@ SphereData generateSphere(float radius, unsigned int rings, unsigned int sectors
             float const x = cos(2.0f * M_PI * s * S) * sin(M_PI * r * R);
             float const z = sin(2.0f * M_PI * s * S) * sin(M_PI * r * R);
 
-            // Texture coordinates
+            // Texture coordinates (flip V to fix upside-down texture)
             float u = s * S;
-            float v = r * R;
+            float v = 1.0f - (r * R);  // Flip V coordinate
             sphere.texCoords.push_back(vec2(u, v));
 
             // Vertex position
