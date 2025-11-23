@@ -39,6 +39,12 @@ float lastY = 0.0f;
 bool isDragging = false;
 float sensitivity = 0.3f;
 
+// Skybox variables
+GLuint skyboxVAO = 0;
+GLuint skyboxVBO = 0;
+GLuint skyboxTexture = 0;
+GLuint skyboxShaderID = 0;
+
 // --------------------------------------------------
 // Texture loading
 // --------------------------------------------------
@@ -105,6 +111,137 @@ GLuint loadTexture(const char* filename) {
 }
 
 // --------------------------------------------------
+// Skybox / Galaxy creation
+// --------------------------------------------------
+GLuint createGalaxyCubemap() {
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    const int size = 1024;  // Resolution per face
+
+    // Create procedural galaxy/starfield for each face
+    for (unsigned int i = 0; i < 6; i++) {
+        unsigned char* data = new unsigned char[size * size * 3];
+
+        // Generate stars and nebula
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                int idx = (y * size + x) * 3;
+
+                // Base dark blue/purple space color
+                float u = (float)x / size;
+                float v = (float)y / size;
+
+                // Dark space background with slight variation
+                unsigned char baseR = (unsigned char)(5 + 10 * sin(u * 3.14f + i));
+                unsigned char baseG = (unsigned char)(5 + 8 * sin(v * 2.71f + i));
+                unsigned char baseB = (unsigned char)(15 + 15 * sin(u * v * 5.0f + i));
+
+                data[idx + 0] = baseR;
+                data[idx + 1] = baseG;
+                data[idx + 2] = baseB;
+
+                // Add random stars
+                float random = (float)(rand() % 10000) / 10000.0f;
+                if (random > 0.998f) {  // 0.2% chance for bright star
+                    unsigned char brightness = (unsigned char)(200 + rand() % 56);
+                    data[idx + 0] = brightness;
+                    data[idx + 1] = brightness;
+                    data[idx + 2] = brightness;
+                }
+                else if (random > 0.995f) {  // 0.3% chance for dimmer star
+                    unsigned char brightness = (unsigned char)(100 + rand() % 100);
+                    data[idx + 0] = brightness;
+                    data[idx + 1] = brightness;
+                    data[idx + 2] = brightness;
+                }
+
+                // Add purple/blue nebula clouds
+                float nebula = sin(u * 20.0f + i) * cos(v * 15.0f + i) * 0.5f + 0.5f;
+                if (nebula > 0.7f) {
+                    data[idx + 0] += (unsigned char)(nebula * 40);  // Red
+                    data[idx + 1] += (unsigned char)(nebula * 20);  // Green
+                    data[idx + 2] += (unsigned char)(nebula * 60);  // Blue
+                }
+            }
+        }
+
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB,
+                     size, size, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+
+        delete[] data;
+    }
+
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    printf("✓ Created procedural galaxy skybox\n");
+    return textureID;
+}
+
+void setupSkybox() {
+    float skyboxVertices[] = {
+        // positions
+        -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+        -1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f
+    };
+
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
+
+    printf("✓ Skybox mesh created\n");
+}
+
+// --------------------------------------------------
 // Shader helpers
 // --------------------------------------------------
 char* readShaderSource(const char* shaderFile) {
@@ -153,6 +290,25 @@ GLuint CompileShaders() {
     }
 
     glUseProgram(program);
+    return program;
+}
+
+GLuint CompileSkyboxShaders() {
+    GLuint program = glCreateProgram();
+    AddShader(program, "skyboxVertexShader.txt", GL_VERTEX_SHADER);
+    AddShader(program, "skyboxFragmentShader.txt", GL_FRAGMENT_SHADER);
+
+    glLinkProgram(program);
+    GLint success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        GLchar log[1024];
+        glGetProgramInfoLog(program, 1024, nullptr, log);
+        std::cerr << "Skybox shader link error: " << log << std::endl;
+        exit(1);
+    }
+
+    printf("✓ Skybox shaders compiled\n");
     return program;
 }
 
@@ -338,6 +494,23 @@ void drawScene(float delta, GLFWwindow* window) {
     glDrawElements(GL_TRIANGLES, earth_sphere.indexCount, GL_UNSIGNED_INT, 0);
 
     glBindVertexArray(0);
+
+    // Draw skybox (render last with depth = 1.0)
+    glDepthFunc(GL_LEQUAL);
+    glUseProgram(skyboxShaderID);
+
+    glUniformMatrix4fv(glGetUniformLocation(skyboxShaderID, "view"), 1, GL_FALSE, view.m);
+    glUniformMatrix4fv(glGetUniformLocation(skyboxShaderID, "proj"), 1, GL_FALSE, proj.m);
+
+    glBindVertexArray(skyboxVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
+    glUniform1i(glGetUniformLocation(skyboxShaderID, "skybox"), 0);
+
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+
+    glBindVertexArray(0);
+    glDepthFunc(GL_LESS);  // Reset to default
 }
 
 // --------------------------------------------------
@@ -386,6 +559,12 @@ int main() {
     // Generate Earth sphere geometry
     printf("\n=== Generating Earth Sphere ===\n");
     generateEarthSphere();
+
+    // Setup galaxy skybox
+    printf("\n=== Creating Galaxy Skybox ===\n");
+    skyboxShaderID = CompileSkyboxShaders();
+    setupSkybox();
+    skyboxTexture = createGalaxyCubemap();
 
     printf("\n=== Starting Render Loop ===\n");
     printf("Controls:\n");
