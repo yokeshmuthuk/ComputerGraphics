@@ -1,38 +1,41 @@
 #version 330
 
+// Vertex attributes
 in vec3 vertex_position;
 in vec3 vertex_normal;
+in vec2 vertex_texcoord;
 
+// Output to fragment shader
+out vec3 FragPos;
+out vec3 Normal;
+out vec2 TexCoord;
+out vec3 LightDir;
+out vec3 ViewDir;
 
-out vec3 LightIntensity;
-
-vec4 LightPosition = vec4 (10.0, 10.0, 4.0, 1.0); // Light position in world coords.
-vec3 Kd = vec3 (0.0, 0.8, 0.0); // green diffuse surface reflectance
-vec3 Ld = vec3 (1.0, 1.0, 1.0); // Light source intensity
-
-
+// Uniforms
 uniform mat4 view;
 uniform mat4 proj;
 uniform mat4 model;
+uniform vec3 lightPos;  // Light position in world coords
 
-void main(){
+void main() {
+    // Calculate fragment position in world space
+    FragPos = vec3(model * vec4(vertex_position, 1.0));
 
-  mat4 ModelViewMatrix = view * model;
-  mat3 NormalMatrix =  mat3(ModelViewMatrix);
-  // Convert normal and position to eye coords
-  // Normal in view space
-  vec3 tnorm = normalize( NormalMatrix * vertex_normal);
-  // Position in view space
-  vec4 eyeCoords = ModelViewMatrix * vec4(vertex_position,1.0);
-  //normalised vector towards the light source
- vec3 s = normalize(vec3(LightPosition - eyeCoords));
-  
-  // The diffuse shading equation, dot product gives us the cosine of angle between the vectors
-  LightIntensity = Ld * Kd * max( dot( s, tnorm ), 0.0 );
-  
-  // Convert position to clip coordinates and pass along
-  gl_Position = proj * view * model * vec4(vertex_position,1.0);
+    // Calculate normal in world space
+    // For non-uniform scaling, should use transpose(inverse(mat3(model)))
+    Normal = normalize(mat3(model) * vertex_normal);
+
+    // Pass texture coordinates to fragment shader
+    TexCoord = vertex_texcoord;
+
+    // Calculate light direction (from fragment to light)
+    LightDir = normalize(lightPos - FragPos);
+
+    // Calculate view direction (from fragment to camera)
+    vec3 viewPos = inverse(view)[3].xyz;  // Extract camera position from view matrix
+    ViewDir = normalize(viewPos - FragPos);
+
+    // Transform vertex position to clip space
+    gl_Position = proj * view * vec4(FragPos, 1.0);
 }
-
-
-  

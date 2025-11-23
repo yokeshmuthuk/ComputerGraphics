@@ -2,68 +2,86 @@
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <iostream>
-#include <assimp/cimport.h>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
 #include "maths_funcs.h"
+#include "sphere_generator.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
-#include "maths_funcs.h"
+#define EARTH_TEXTURE "earth_color.jpg"
 
-#define MESH_NAME "monkeyhead_smooth.dae"
-
-struct ModelData {
-    size_t mPointCount = 0;
-    std::vector<vec3> mVertices;
-    std::vector<vec3> mNormals;
-    std::vector<vec2> mTextureCoords;
-};
-
+// Global variables
 GLuint shaderProgramID;
-ModelData mesh_data;
+SphereData earth_sphere;
 GLuint vao = 0;
-GLuint loc1, loc2;
+GLuint earthTexture = 0;
+GLuint ebo = 0;  // Element buffer object for indices
 GLfloat rotate_y = 0.0f;
 int width = 800, height = 600;
 
 // --------------------------------------------------
-// Mesh loading (Assimp)
+// Texture loading
 // --------------------------------------------------
-ModelData load_mesh(const char* file_name) {
-    ModelData modelData;
-    const aiScene* scene = aiImportFile(
-            file_name,
-            aiProcess_Triangulate | aiProcess_PreTransformVertices
-    );
+GLuint loadTexture(const char* filename) {
+    GLuint textureID;
+    glGenTextures(1, &textureID);
 
-    if (!scene) {
-        fprintf(stderr, "ERROR: reading mesh %s\n", file_name);
-        return modelData;
-    }
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
 
-    printf("Loaded: %i meshes\n", scene->mNumMeshes);
+    if (data) {
+        GLenum format = GL_RGB;
+        if (nrChannels == 1)
+            format = GL_RED;
+        else if (nrChannels == 3)
+            format = GL_RGB;
+        else if (nrChannels == 4)
+            format = GL_RGBA;
 
-    for (unsigned int m_i = 0; m_i < scene->mNumMeshes; m_i++) {
-        const aiMesh* mesh = scene->mMeshes[m_i];
-        modelData.mPointCount += mesh->mNumVertices;
-        for (unsigned int v_i = 0; v_i < mesh->mNumVertices; v_i++) {
-            if (mesh->HasPositions()) {
-                const aiVector3D* vp = &(mesh->mVertices[v_i]);
-                modelData.mVertices.push_back(vec3(vp->x, vp->y, vp->z));
-            }
-            if (mesh->HasNormals()) {
-                const aiVector3D* vn = &(mesh->mNormals[v_i]);
-                modelData.mNormals.push_back(vec3(vn->x, vn->y, vn->z));
-            }
-            if (mesh->HasTextureCoords(0)) {
-                const aiVector3D* vt = &(mesh->mTextureCoords[0][v_i]);
-                modelData.mTextureCoords.push_back(vec2(vt->x, vt->y));
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        // Set texture wrapping and filtering parameters
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+        printf("✓ Loaded texture: %s (%dx%d, %d channels)\n", filename, width, height, nrChannels);
+    } else {
+        std::cerr << "✗ Failed to load texture: " << filename << std::endl;
+        std::cerr << "  Creating fallback procedural texture..." << std::endl;
+
+        // Create a simple blue/green Earth-like procedural texture
+        const int size = 512;
+        unsigned char* proceduralData = new unsigned char[size * size * 3];
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                int idx = (y * size + x) * 3;
+                float u = (float)x / size;
+                float v = (float)y / size;
+                // Simple blue/green pattern
+                proceduralData[idx + 0] = (unsigned char)(30 + 50 * sin(u * 20.0f));  // R
+                proceduralData[idx + 1] = (unsigned char)(100 + 50 * cos(v * 15.0f)); // G
+                proceduralData[idx + 2] = (unsigned char)(150 + 50 * sin(u * v * 30.0f)); // B
             }
         }
+
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size, size, 0, GL_RGB, GL_UNSIGNED_BYTE, proceduralData);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        delete[] proceduralData;
+        printf("✓ Created procedural fallback texture\n");
     }
 
-    aiReleaseImport(scene);
-    return modelData;
+    return textureID;
 }
 
 // --------------------------------------------------
@@ -121,31 +139,50 @@ GLuint CompileShaders() {
 // --------------------------------------------------
 // Buffer setup
 // --------------------------------------------------
-void generateObjectBufferMesh() {
-    mesh_data = load_mesh(MESH_NAME);
+void generateEarthSphere() {
+    // Generate sphere geometry (radius, rings, sectors)
+    earth_sphere = generateSphere(2.0f, 64, 64);
+    printf("Generated Earth sphere: %zu vertices, %zu indices\n",
+           earth_sphere.vertices.size(), earth_sphere.indexCount);
 
-    GLuint vp_vbo, vn_vbo;
+    GLuint vp_vbo, vn_vbo, vt_vbo;
+
+    // Create VAO
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
+    // Vertex positions
     glGenBuffers(1, &vp_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vp_vbo);
-    glBufferData(GL_ARRAY_BUFFER, mesh_data.mVertices.size() * sizeof(vec3), mesh_data.mVertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, earth_sphere.vertices.size() * sizeof(vec3),
+                 earth_sphere.vertices.data(), GL_STATIC_DRAW);
+    GLuint loc_pos = glGetAttribLocation(shaderProgramID, "vertex_position");
+    glEnableVertexAttribArray(loc_pos);
+    glVertexAttribPointer(loc_pos, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
+    // Vertex normals
     glGenBuffers(1, &vn_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vn_vbo);
-    glBufferData(GL_ARRAY_BUFFER, mesh_data.mNormals.size() * sizeof(vec3), mesh_data.mNormals.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, earth_sphere.normals.size() * sizeof(vec3),
+                 earth_sphere.normals.data(), GL_STATIC_DRAW);
+    GLuint loc_norm = glGetAttribLocation(shaderProgramID, "vertex_normal");
+    glEnableVertexAttribArray(loc_norm);
+    glVertexAttribPointer(loc_norm, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    loc1 = glGetAttribLocation(shaderProgramID, "vertex_position");
-    loc2 = glGetAttribLocation(shaderProgramID, "vertex_normal");
+    // Texture coordinates
+    glGenBuffers(1, &vt_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vt_vbo);
+    glBufferData(GL_ARRAY_BUFFER, earth_sphere.texCoords.size() * sizeof(vec2),
+                 earth_sphere.texCoords.data(), GL_STATIC_DRAW);
+    GLuint loc_tex = glGetAttribLocation(shaderProgramID, "vertex_texcoord");
+    glEnableVertexAttribArray(loc_tex);
+    glVertexAttribPointer(loc_tex, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    glEnableVertexAttribArray(loc1);
-    glBindBuffer(GL_ARRAY_BUFFER, vp_vbo);
-    glVertexAttribPointer(loc1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-
-    glEnableVertexAttribArray(loc2);
-    glBindBuffer(GL_ARRAY_BUFFER, vn_vbo);
-    glVertexAttribPointer(loc2, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    // Element buffer for indices
+    glGenBuffers(1, &ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, earth_sphere.indices.size() * sizeof(unsigned int),
+                 earth_sphere.indices.data(), GL_STATIC_DRAW);
 
     glBindVertexArray(0);
 }
@@ -154,27 +191,56 @@ void generateObjectBufferMesh() {
 // Render
 // --------------------------------------------------
 void drawScene(float delta) {
-    rotate_y = fmodf(rotate_y + 20.0f * delta, 360.0f);
+    // Update rotation (Earth spins)
+    rotate_y = fmodf(rotate_y + 15.0f * delta, 360.0f);
+
+    // BLACK SPACE background
     glEnable(GL_DEPTH_TEST);
-    glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Black background for space
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(shaderProgramID);
     glBindVertexArray(vao);
 
+    // Bind Earth texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, earthTexture);
+    glUniform1i(glGetUniformLocation(shaderProgramID, "earthTexture"), 0);
+
+    // Set up transformation matrices
     int model_loc = glGetUniformLocation(shaderProgramID, "model");
     int view_loc  = glGetUniformLocation(shaderProgramID, "view");
     int proj_loc  = glGetUniformLocation(shaderProgramID, "proj");
 
-    mat4 view = translate(identity_mat4(), vec3(0.0f, 0.0f, -10.0f));
+    mat4 view = translate(identity_mat4(), vec3(0.0f, 0.0f, -7.0f));
     mat4 proj = perspective(45.0f, (float)width / height, 0.1f, 100.0f);
-    mat4 model = rotate_z_deg(identity_mat4(), rotate_y);
+
+    // Earth rotation (around Y axis for proper rotation)
+    mat4 model = rotate_y_deg(identity_mat4(), rotate_y);
 
     glUniformMatrix4fv(proj_loc, 1, GL_FALSE, proj.m);
     glUniformMatrix4fv(view_loc, 1, GL_FALSE, view.m);
     glUniformMatrix4fv(model_loc, 1, GL_FALSE, model.m);
 
-    glDrawArrays(GL_TRIANGLES, 0, mesh_data.mPointCount);
+    // Advanced lighting uniforms
+    vec3 lightPos = vec3(10.0f, 10.0f, 10.0f);  // Light position
+    vec3 lightColor = vec3(1.0f, 1.0f, 1.0f);   // White light
+
+    glUniform3f(glGetUniformLocation(shaderProgramID, "lightPos"),
+                lightPos.v[0], lightPos.v[1], lightPos.v[2]);
+    glUniform3f(glGetUniformLocation(shaderProgramID, "lightColor"),
+                lightColor.v[0], lightColor.v[1], lightColor.v[2]);
+
+    // Phong lighting parameters
+    glUniform1f(glGetUniformLocation(shaderProgramID, "ambientStrength"), 0.2f);
+    glUniform1f(glGetUniformLocation(shaderProgramID, "diffuseStrength"), 0.8f);
+    glUniform1f(glGetUniformLocation(shaderProgramID, "specularStrength"), 0.3f);
+    glUniform1f(glGetUniformLocation(shaderProgramID, "shininess"), 32.0f);
+
+    // Draw Earth sphere using indexed rendering
+    glDrawElements(GL_TRIANGLES, earth_sphere.indexCount, GL_UNSIGNED_INT, 0);
+
+    glBindVertexArray(0);
 }
 
 // --------------------------------------------------
@@ -189,7 +255,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow* window = glfwCreateWindow(width, height, "Lab 4", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(width, height, "Earth - OpenGL 3D", nullptr, nullptr);
     if (!window) {
         glfwTerminate();
         return -1;
@@ -201,7 +267,17 @@ int main() {
     }
 
     shaderProgramID = CompileShaders();
-    generateObjectBufferMesh();
+
+    // Load Earth texture
+    printf("\n=== Loading Earth Texture ===\n");
+    earthTexture = loadTexture(EARTH_TEXTURE);
+
+    // Generate Earth sphere geometry
+    printf("\n=== Generating Earth Sphere ===\n");
+    generateEarthSphere();
+
+    printf("\n=== Starting Render Loop ===\n");
+    printf("Controls: Close window to exit\n\n");
 
     float lastTime = (float)glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
