@@ -31,13 +31,13 @@ vec3 cameraFront = vec3(0.0f, 0.0f, -1.0f);
 vec3 cameraUp = vec3(0.0f, 1.0f, 0.0f);
 float cameraSpeed = 5.0f;
 
-// Mouse control
+// Mouse control (click and drag)
 float yaw = -90.0f;
 float pitch = 0.0f;
-float lastX = (float)width / 2.0f;
-float lastY = (float)height / 2.0f;
-bool firstMouse = true;
-float sensitivity = 0.1f;
+float lastX = 0.0f;
+float lastY = 0.0f;
+bool isDragging = false;
+float sensitivity = 0.3f;
 
 // --------------------------------------------------
 // Texture loading
@@ -234,18 +234,28 @@ void processInput(GLFWwindow* window, float deltaTime) {
         cameraPos = cameraPos + (cameraUp * velocity);
 }
 
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    if ((button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT) && action == GLFW_PRESS) {
+        isDragging = true;
+        double xpos, ypos;
+        glfwGetCursorPos(window, &xpos, &ypos);
+        lastX = (float)xpos;
+        lastY = (float)ypos;
+    }
+    else if ((button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT) && action == GLFW_RELEASE) {
+        isDragging = false;
+    }
+}
+
 void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    if (!isDragging) return;  // Only rotate when dragging
+
     float xposf = (float)xpos;
     float yposf = (float)ypos;
 
-    if (firstMouse) {
-        lastX = xposf;
-        lastY = yposf;
-        firstMouse = false;
-    }
-
     float xoffset = xposf - lastX;
     float yoffset = lastY - yposf; // Reversed: y-coordinates go from bottom to top
+
     lastX = xposf;
     lastY = yposf;
 
@@ -353,9 +363,19 @@ int main() {
         return -1;
     }
 
-    // Setup mouse input
+    // Get actual framebuffer size (might differ from window size on high-DPI displays)
+    int fbWidth, fbHeight;
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    glViewport(0, 0, fbWidth, fbHeight);
+
+    // Update width/height to actual framebuffer size for correct aspect ratio
+    width = fbWidth;
+    height = fbHeight;
+
+    // Setup mouse input (click and drag)
     glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
+    // Cursor is visible and normal (not captured)
 
     shaderProgramID = CompileShaders();
 
@@ -371,8 +391,9 @@ int main() {
     printf("Controls:\n");
     printf("  WASD - Move camera\n");
     printf("  Q/E - Move up/down\n");
-    printf("  Mouse - Look around\n");
-    printf("  ESC - Exit\n\n");
+    printf("  Left/Right Click + Drag - Rotate view\n");
+    printf("  ESC - Exit\n");
+    printf("\nActual Resolution: %dx%d\n\n", width, height);
 
     float lastTime = (float)glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
