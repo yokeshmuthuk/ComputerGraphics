@@ -135,13 +135,16 @@ GLuint loadCubemapFromFiles() {
         "skybox/back"     // -Z
     };
 
-    const char* extensions[2] = {".png", ".jpg"};
+    // Try HDR first, then LDR formats
+    const char* extensions[3] = {".hdr", ".png", ".jpg"};
 
     GLuint textureID;
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
 
     bool allLoaded = true;
+    bool isHDR = false;
+
     for (unsigned int i = 0; i < 6; i++) {
         bool faceLoaded = false;
 
@@ -149,21 +152,43 @@ GLuint loadCubemapFromFiles() {
         const char* namingConventions[2] = {faceNamesCorona[i], faceNamesGeneric[i]};
 
         for (int convention = 0; convention < 2; convention++) {
-            for (int ext = 0; ext < 2; ext++) {
+            for (int ext = 0; ext < 3; ext++) {
                 char filepath[256];
                 snprintf(filepath, sizeof(filepath), "%s%s", namingConventions[convention], extensions[ext]);
 
                 int width, height, nrChannels;
-                unsigned char* data = stbi_load(filepath, &width, &height, &nrChannels, 0);
 
-                if (data) {
-                    GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-                    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
-                                 width, height, 0, format, GL_UNSIGNED_BYTE, data);
-                    stbi_image_free(data);
-                    printf("✓ Loaded skybox face: %s (%dx%d)\n", filepath, width, height);
-                    faceLoaded = true;
-                    break;  // Successfully loaded, move to next face
+                // Check if this is an HDR file
+                if (ext == 0) {  // .hdr extension
+                    // Try loading as HDR (floating point)
+                    stbi_set_flip_vertically_on_load(false);
+                    float* data = stbi_loadf(filepath, &width, &height, &nrChannels, 0);
+
+                    if (data) {
+                        isHDR = true;
+                        GLenum internalFormat = (nrChannels == 4) ? GL_RGBA16F : GL_RGB16F;
+                        GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+
+                        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, internalFormat,
+                                     width, height, 0, format, GL_FLOAT, data);
+                        stbi_image_free(data);
+                        printf("✓ Loaded HDR skybox face: %s (%dx%d, HDR)\n", filepath, width, height);
+                        faceLoaded = true;
+                        break;
+                    }
+                } else {
+                    // Try loading as regular LDR image
+                    unsigned char* data = stbi_load(filepath, &width, &height, &nrChannels, 0);
+
+                    if (data) {
+                        GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+                        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
+                                     width, height, 0, format, GL_UNSIGNED_BYTE, data);
+                        stbi_image_free(data);
+                        printf("✓ Loaded skybox face: %s (%dx%d)\n", filepath, width, height);
+                        faceLoaded = true;
+                        break;
+                    }
                 }
             }
             if (faceLoaded) break;
@@ -194,7 +219,11 @@ GLuint loadCubemapFromFiles() {
     // Enable seamless cubemap filtering to remove visible seams
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
-    printf("✓ Loaded cubemap skybox from image files\n");
+    if (isHDR) {
+        printf("✓ Loaded HDR cubemap skybox from image files\n");
+    } else {
+        printf("✓ Loaded LDR cubemap skybox from image files\n");
+    }
     return textureID;
 }
 
@@ -630,6 +659,9 @@ void drawScene(float delta, GLFWwindow* window) {
 
     glUniformMatrix4fv(glGetUniformLocation(skyboxShaderID, "view"), 1, GL_FALSE, view.m);
     glUniformMatrix4fv(glGetUniformLocation(skyboxShaderID, "proj"), 1, GL_FALSE, proj.m);
+
+    // Set exposure for HDR tone mapping
+    glUniform1f(glGetUniformLocation(skyboxShaderID, "exposure"), 1.0f);
 
     glBindVertexArray(skyboxVAO);
     glActiveTexture(GL_TEXTURE0);
