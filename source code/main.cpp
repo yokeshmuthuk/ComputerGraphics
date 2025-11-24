@@ -114,14 +114,16 @@ GLuint loadTexture(const char* filename) {
 // Skybox / Galaxy creation
 // --------------------------------------------------
 GLuint loadCubemapFromFiles() {
-    const char* faces[6] = {
-        "skybox/right.jpg",   // +X
-        "skybox/left.jpg",    // -X
-        "skybox/top.jpg",     // +Y
-        "skybox/bottom.jpg",  // -Y
-        "skybox/front.jpg",   // +Z
-        "skybox/back.jpg"     // -Z
+    const char* faceNames[6] = {
+        "skybox/right",   // +X
+        "skybox/left",    // -X
+        "skybox/top",     // +Y
+        "skybox/bottom",  // -Y
+        "skybox/front",   // +Z
+        "skybox/back"     // -Z
     };
+
+    const char* extensions[2] = {".png", ".jpg"};
 
     GLuint textureID;
     glGenTextures(1, &textureID);
@@ -129,18 +131,29 @@ GLuint loadCubemapFromFiles() {
 
     bool allLoaded = true;
     for (unsigned int i = 0; i < 6; i++) {
-        int width, height, nrChannels;
-        unsigned char* data = stbi_load(faces[i], &width, &height, &nrChannels, 0);
+        bool faceLoaded = false;
 
-        if (data) {
-            GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
-                         width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            stbi_image_free(data);
-            printf("✓ Loaded skybox face: %s (%dx%d)\n", faces[i], width, height);
+        // Try both .png and .jpg extensions
+        for (int ext = 0; ext < 2; ext++) {
+            char filepath[256];
+            snprintf(filepath, sizeof(filepath), "%s%s", faceNames[i], extensions[ext]);
+
+            int width, height, nrChannels;
+            unsigned char* data = stbi_load(filepath, &width, &height, &nrChannels, 0);
+
+            if (data) {
+                GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+                glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
+                             width, height, 0, format, GL_UNSIGNED_BYTE, data);
+                stbi_image_free(data);
+                printf("✓ Loaded skybox face: %s (%dx%d)\n", filepath, width, height);
+                faceLoaded = true;
+                break;  // Successfully loaded, move to next face
+            }
         }
-        else {
-            printf("✗ Failed to load skybox face: %s\n", faces[i]);
+
+        if (!faceLoaded) {
+            printf("✗ Failed to load skybox face: %s (.png or .jpg)\n", faceNames[i]);
             allLoaded = false;
             break;
         }
