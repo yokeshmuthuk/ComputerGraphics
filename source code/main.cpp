@@ -44,7 +44,6 @@ GLuint skyboxVAO = 0;
 GLuint skyboxVBO = 0;
 GLuint skyboxTexture = 0;
 GLuint skyboxShaderID = 0;
-bool useEquirectangular = false;  // Track if using equirectangular or cubemap
 
 // --------------------------------------------------
 // Texture loading
@@ -145,233 +144,7 @@ GLuint loadEquirectangularHDR(const char* filepath) {
     return textureID;
 }
 
-GLuint loadCubemapFromFiles() {
-    // Support multiple naming conventions
-    // Convention 1: Corona format (corona_rt, corona_lf, etc.)
-    // Convention 2: Generic format (right, left, etc.)
-    const char* faceNamesCorona[6] = {
-        "skybox/corona_rt",   // +X (right)
-        "skybox/corona_lf",   // -X (left)
-        "skybox/corona_up",   // +Y (top)
-        "skybox/corona_dn",   // -Y (bottom)
-        "skybox/corona_ft",   // +Z (front)
-        "skybox/corona_bk"    // -Z (back)
-    };
-
-    const char* faceNamesGeneric[6] = {
-        "skybox/right",   // +X
-        "skybox/left",    // -X
-        "skybox/top",     // +Y
-        "skybox/bottom",  // -Y
-        "skybox/front",   // +Z
-        "skybox/back"     // -Z
-    };
-
-    // Try HDR first, then LDR formats
-    const char* extensions[3] = {".hdr", ".png", ".jpg"};
-
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
-
-    bool allLoaded = true;
-    bool isHDR = false;
-
-    for (unsigned int i = 0; i < 6; i++) {
-        bool faceLoaded = false;
-
-        // Try corona naming first, then generic naming
-        const char* namingConventions[2] = {faceNamesCorona[i], faceNamesGeneric[i]};
-
-        for (int convention = 0; convention < 2; convention++) {
-            for (int ext = 0; ext < 3; ext++) {
-                char filepath[256];
-                snprintf(filepath, sizeof(filepath), "%s%s", namingConventions[convention], extensions[ext]);
-
-                int width, height, nrChannels;
-
-                // Check if this is an HDR file
-                if (ext == 0) {  // .hdr extension
-                    // Try loading as HDR (floating point)
-                    stbi_set_flip_vertically_on_load(false);
-                    float* data = stbi_loadf(filepath, &width, &height, &nrChannels, 0);
-
-                    if (data) {
-                        isHDR = true;
-                        GLenum internalFormat = (nrChannels == 4) ? GL_RGBA16F : GL_RGB16F;
-                        GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-
-                        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, internalFormat,
-                                     width, height, 0, format, GL_FLOAT, data);
-                        stbi_image_free(data);
-                        printf("✓ Loaded HDR skybox face: %s (%dx%d, HDR)\n", filepath, width, height);
-                        faceLoaded = true;
-                        break;
-                    }
-                } else {
-                    // Try loading as regular LDR image
-                    unsigned char* data = stbi_load(filepath, &width, &height, &nrChannels, 0);
-
-                    if (data) {
-                        GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-                        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
-                                     width, height, 0, format, GL_UNSIGNED_BYTE, data);
-                        stbi_image_free(data);
-                        printf("✓ Loaded skybox face: %s (%dx%d)\n", filepath, width, height);
-                        faceLoaded = true;
-                        break;
-                    }
-                }
-            }
-            if (faceLoaded) break;
-        }
-
-        if (!faceLoaded) {
-            printf("✗ Failed to load skybox face for position %d\n", i);
-            allLoaded = false;
-            break;
-        }
-    }
-
-    if (!allLoaded) {
-        glDeleteTextures(1, &textureID);
-        return 0;  // Return 0 to indicate failure
-    }
-
-    // Generate mipmaps for better quality
-    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-
-    // Use trilinear filtering for smoother appearance
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    // Enable seamless cubemap filtering to remove visible seams
-    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-
-    if (isHDR) {
-        printf("✓ Loaded HDR cubemap skybox from image files\n");
-    } else {
-        printf("✓ Loaded LDR cubemap skybox from image files\n");
-    }
-    return textureID;
-}
-
-GLuint createGalaxyCubemap() {
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
-
-    const int size = 1024;  // Resolution per face
-    srand(12345);  // Fixed seed for consistent stars across runs
-
-    // Create procedural galaxy/starfield for each face
-    for (unsigned int face = 0; face < 6; face++) {
-        unsigned char* data = new unsigned char[size * size * 3];
-
-        // Initialize to pure black space
-        for (int i = 0; i < size * size * 3; i++) {
-            data[i] = 0;
-        }
-
-        // Add stars
-        int numStars = 2000 + (rand() % 1000);  // 2000-3000 stars per face
-        for (int s = 0; s < numStars; s++) {
-            int x = rand() % size;
-            int y = rand() % size;
-            int idx = (y * size + x) * 3;
-
-            // Star brightness and color
-            float brightness = 0.5f + ((float)(rand() % 100) / 100.0f) * 0.5f;  // 0.5 to 1.0
-
-            // Slight color variation (bluish, white, or slightly yellow)
-            float colorTint = (float)(rand() % 100) / 100.0f;
-            unsigned char r, g, b;
-
-            if (colorTint < 0.7f) {
-                // White stars (most common)
-                r = g = b = (unsigned char)(brightness * 255);
-            }
-            else if (colorTint < 0.85f) {
-                // Bluish stars
-                r = (unsigned char)(brightness * 200);
-                g = (unsigned char)(brightness * 220);
-                b = (unsigned char)(brightness * 255);
-            }
-            else {
-                // Yellowish stars
-                r = (unsigned char)(brightness * 255);
-                g = (unsigned char)(brightness * 240);
-                b = (unsigned char)(brightness * 200);
-            }
-
-            data[idx + 0] = r;
-            data[idx + 1] = g;
-            data[idx + 2] = b;
-
-            // Add glow for brighter stars
-            if (brightness > 0.8f) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    for (int dx = -1; dx <= 1; dx++) {
-                        if (dx == 0 && dy == 0) continue;
-                        int nx = x + dx;
-                        int ny = y + dy;
-                        if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
-                            int nidx = (ny * size + nx) * 3;
-                            unsigned char glow = (unsigned char)(brightness * 60);
-                            data[nidx + 0] = std::max(data[nidx + 0], (unsigned char)(r * 0.3f));
-                            data[nidx + 1] = std::max(data[nidx + 1], (unsigned char)(g * 0.3f));
-                            data[nidx + 2] = std::max(data[nidx + 2], (unsigned char)(b * 0.3f));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add very subtle nebula wisps (optional - much more subtle)
-        for (int y = 0; y < size; y += 4) {
-            for (int x = 0; x < size; x += 4) {
-                float u = (float)x / size;
-                float v = (float)y / size;
-
-                // Very subtle nebula calculation
-                float noise = sin(u * 50.0f + face * 1.5f) * cos(v * 40.0f + face * 2.0f);
-                noise = noise * 0.5f + 0.5f;  // Normalize to 0-1
-
-                if (noise > 0.85f) {  // Very high threshold
-                    int idx = (y * size + x) * 3;
-                    unsigned char tint = (unsigned char)((noise - 0.85f) * 40);  // Very subtle
-                    data[idx + 0] = std::min(255, data[idx + 0] + tint / 3);      // Slight red
-                    data[idx + 1] = std::min(255, data[idx + 1] + tint / 4);      // Less green
-                    data[idx + 2] = std::min(255, data[idx + 2] + tint);          // More blue
-                }
-            }
-        }
-
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGB,
-                     size, size, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-
-        delete[] data;
-    }
-
-    // Generate mipmaps for better quality
-    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-
-    // Use trilinear filtering for smoother appearance
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    // Enable seamless cubemap filtering to remove visible seams
-    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-
-    printf("✓ Created procedural galaxy skybox with realistic starfield\n");
-    return textureID;
-}
+// Only equirectangular HDR support - cubemap and procedural functions removed
 
 void setupSkybox() {
     float skyboxVertices[] = {
@@ -486,25 +259,6 @@ GLuint CompileShaders() {
 GLuint CompileSkyboxShaders() {
     GLuint program = glCreateProgram();
     AddShader(program, "skyboxVertexShader.txt", GL_VERTEX_SHADER);
-    AddShader(program, "skyboxFragmentShader.txt", GL_FRAGMENT_SHADER);
-
-    glLinkProgram(program);
-    GLint success;
-    glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (!success) {
-        GLchar log[1024];
-        glGetProgramInfoLog(program, 1024, nullptr, log);
-        std::cerr << "Skybox shader link error: " << log << std::endl;
-        exit(1);
-    }
-
-    printf("✓ Skybox shaders compiled\n");
-    return program;
-}
-
-GLuint CompileEquirectShaders() {
-    GLuint program = glCreateProgram();
-    AddShader(program, "skyboxVertexShader.txt", GL_VERTEX_SHADER);
     AddShader(program, "skyboxEquirectFragmentShader.txt", GL_FRAGMENT_SHADER);
 
     glLinkProgram(program);
@@ -513,11 +267,11 @@ GLuint CompileEquirectShaders() {
     if (!success) {
         GLchar log[1024];
         glGetProgramInfoLog(program, 1024, nullptr, log);
-        std::cerr << "Equirectangular shader link error: " << log << std::endl;
+        std::cerr << "Equirectangular HDR shader link error: " << log << std::endl;
         exit(1);
     }
 
-    printf("✓ Equirectangular skybox shaders compiled\n");
+    printf("✓ Equirectangular HDR skybox shaders compiled\n");
     return program;
 }
 
@@ -716,14 +470,8 @@ void drawScene(float delta, GLFWwindow* window) {
 
     glBindVertexArray(skyboxVAO);
     glActiveTexture(GL_TEXTURE0);
-
-    if (useEquirectangular) {
-        glBindTexture(GL_TEXTURE_2D, skyboxTexture);
-        glUniform1i(glGetUniformLocation(skyboxShaderID, "equirectangularMap"), 0);
-    } else {
-        glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
-        glUniform1i(glGetUniformLocation(skyboxShaderID, "skybox"), 0);
-    }
+    glBindTexture(GL_TEXTURE_2D, skyboxTexture);
+    glUniform1i(glGetUniformLocation(skyboxShaderID, "equirectangularMap"), 0);
 
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
@@ -779,32 +527,28 @@ int main() {
     generateEarthSphere();
 
     // Setup galaxy skybox
-    printf("\n=== Creating Galaxy Skybox ===\n");
+    printf("\n=== Loading Equirectangular HDR Skybox ===\n");
+    skyboxShaderID = CompileSkyboxShaders();
     setupSkybox();
 
-    // Try loading equirectangular HDR first (single file)
-    printf("Attempting to load equirectangular HDR...\n");
+    // Try loading equirectangular HDR
     const char* equirectFiles[] = {"skybox/environment.hdr", "skybox/skybox.hdr", "skybox/space.hdr"};
     for (int i = 0; i < 3; i++) {
         skyboxTexture = loadEquirectangularHDR(equirectFiles[i]);
         if (skyboxTexture != 0) {
-            useEquirectangular = true;
-            skyboxShaderID = CompileEquirectShaders();
             break;
         }
     }
 
-    // If equirectangular not found, try cubemap faces
     if (skyboxTexture == 0) {
-        printf("Equirectangular HDR not found, trying cubemap faces...\n");
-        skyboxShaderID = CompileSkyboxShaders();
-        skyboxTexture = loadCubemapFromFiles();
-    }
-
-    // If neither found, fall back to procedural
-    if (skyboxTexture == 0) {
-        printf("Skybox images not found - using procedural generation as fallback\n");
-        skyboxTexture = createGalaxyCubemap();
+        std::cerr << "\n✗ ERROR: No equirectangular HDR file found!" << std::endl;
+        std::cerr << "Please place one of these files in 'source code/skybox/':" << std::endl;
+        std::cerr << "  - environment.hdr" << std::endl;
+        std::cerr << "  - skybox.hdr" << std::endl;
+        std::cerr << "  - space.hdr" << std::endl;
+        std::cerr << "\nDownload HDR skyboxes from: https://polyhaven.com/hdris" << std::endl;
+        glfwTerminate();
+        return -1;
     }
 
     printf("\n=== Starting Render Loop ===\n");
