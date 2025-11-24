@@ -88,3 +88,16 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/source code/${EARTH_TEXTURE}")
 else()
     message(STATUS "Note: ${EARTH_TEXTURE} not found - app will use procedural fallback texture")
 endif()
+
+# Copy skybox folder if it exists
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/source code/skybox")
+    add_custom_command(TARGET lab4_main POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_LIST_DIR}/source code/skybox"
+            "$<TARGET_FILE_DIR:lab4_main>/skybox"
+            COMMENT "Copying skybox images to build directory"
+    )
+    message(STATUS "Skybox folder found - will be copied to build directory")
+else()
+    message(STATUS "Note: skybox folder not found - app will use procedural fallback skybox")
+endif()
