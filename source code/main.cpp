@@ -114,7 +114,19 @@ GLuint loadTexture(const char* filename) {
 // Skybox / Galaxy creation
 // --------------------------------------------------
 GLuint loadCubemapFromFiles() {
-    const char* faceNames[6] = {
+    // Support multiple naming conventions
+    // Convention 1: Corona format (corona_rt, corona_lf, etc.)
+    // Convention 2: Generic format (right, left, etc.)
+    const char* faceNamesCorona[6] = {
+        "skybox/corona_rt",   // +X (right)
+        "skybox/corona_lf",   // -X (left)
+        "skybox/corona_up",   // +Y (top)
+        "skybox/corona_dn",   // -Y (bottom)
+        "skybox/corona_ft",   // +Z (front)
+        "skybox/corona_bk"    // -Z (back)
+    };
+
+    const char* faceNamesGeneric[6] = {
         "skybox/right",   // +X
         "skybox/left",    // -X
         "skybox/top",     // +Y
@@ -133,27 +145,32 @@ GLuint loadCubemapFromFiles() {
     for (unsigned int i = 0; i < 6; i++) {
         bool faceLoaded = false;
 
-        // Try both .png and .jpg extensions
-        for (int ext = 0; ext < 2; ext++) {
-            char filepath[256];
-            snprintf(filepath, sizeof(filepath), "%s%s", faceNames[i], extensions[ext]);
+        // Try corona naming first, then generic naming
+        const char* namingConventions[2] = {faceNamesCorona[i], faceNamesGeneric[i]};
 
-            int width, height, nrChannels;
-            unsigned char* data = stbi_load(filepath, &width, &height, &nrChannels, 0);
+        for (int convention = 0; convention < 2; convention++) {
+            for (int ext = 0; ext < 2; ext++) {
+                char filepath[256];
+                snprintf(filepath, sizeof(filepath), "%s%s", namingConventions[convention], extensions[ext]);
 
-            if (data) {
-                GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-                glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
-                             width, height, 0, format, GL_UNSIGNED_BYTE, data);
-                stbi_image_free(data);
-                printf("✓ Loaded skybox face: %s (%dx%d)\n", filepath, width, height);
-                faceLoaded = true;
-                break;  // Successfully loaded, move to next face
+                int width, height, nrChannels;
+                unsigned char* data = stbi_load(filepath, &width, &height, &nrChannels, 0);
+
+                if (data) {
+                    GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+                    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
+                                 width, height, 0, format, GL_UNSIGNED_BYTE, data);
+                    stbi_image_free(data);
+                    printf("✓ Loaded skybox face: %s (%dx%d)\n", filepath, width, height);
+                    faceLoaded = true;
+                    break;  // Successfully loaded, move to next face
+                }
             }
+            if (faceLoaded) break;
         }
 
         if (!faceLoaded) {
-            printf("✗ Failed to load skybox face: %s (.png or .jpg)\n", faceNames[i]);
+            printf("✗ Failed to load skybox face for position %d\n", i);
             allLoaded = false;
             break;
         }
