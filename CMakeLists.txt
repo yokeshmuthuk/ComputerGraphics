@@ -73,6 +73,7 @@ add_custom_command(TARGET lab4_main POST_BUILD
         "${CMAKE_CURRENT_LIST_DIR}/source code/simpleFragmentShader.txt"
         "${CMAKE_CURRENT_LIST_DIR}/source code/skyboxVertexShader.txt"
         "${CMAKE_CURRENT_LIST_DIR}/source code/skyboxFragmentShader.txt"
+        "${CMAKE_CURRENT_LIST_DIR}/source code/skyboxEquirectFragmentShader.txt"
         $<TARGET_FILE_DIR:lab4_main>
         COMMENT "Copying shader files to build directory"
 )

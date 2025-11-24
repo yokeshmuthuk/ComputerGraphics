@@ -44,6 +44,7 @@ GLuint skyboxVAO = 0;
 GLuint skyboxVBO = 0;
 GLuint skyboxTexture = 0;
 GLuint skyboxShaderID = 0;
+bool useEquirectangular = false;  // Track if using equirectangular or cubemap
 
 // --------------------------------------------------
 // Texture loading
@@ -113,6 +114,37 @@ GLuint loadTexture(const char* filename) {
 // --------------------------------------------------
 // Skybox / Galaxy creation
 // --------------------------------------------------
+
+// Load a single equirectangular HDR image
+GLuint loadEquirectangularHDR(const char* filepath) {
+    stbi_set_flip_vertically_on_load(true);
+    int width, height, nrChannels;
+    float* data = stbi_loadf(filepath, &width, &height, &nrChannels, 0);
+
+    if (!data) {
+        printf("✗ Failed to load equirectangular HDR: %s\n", filepath);
+        return 0;
+    }
+
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+
+    GLenum internalFormat = (nrChannels == 4) ? GL_RGBA16F : GL_RGB16F;
+    GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_FLOAT, data);
+    stbi_image_free(data);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    printf("✓ Loaded equirectangular HDR: %s (%dx%d, HDR)\n", filepath, width, height);
+    return textureID;
+}
+
 GLuint loadCubemapFromFiles() {
     // Support multiple naming conventions
     // Convention 1: Corona format (corona_rt, corona_lf, etc.)
@@ -470,6 +502,25 @@ GLuint CompileSkyboxShaders() {
     return program;
 }
 
+GLuint CompileEquirectShaders() {
+    GLuint program = glCreateProgram();
+    AddShader(program, "skyboxVertexShader.txt", GL_VERTEX_SHADER);
+    AddShader(program, "skyboxEquirectFragmentShader.txt", GL_FRAGMENT_SHADER);
+
+    glLinkProgram(program);
+    GLint success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        GLchar log[1024];
+        glGetProgramInfoLog(program, 1024, nullptr, log);
+        std::cerr << "Equirectangular shader link error: " << log << std::endl;
+        exit(1);
+    }
+
+    printf("✓ Equirectangular skybox shaders compiled\n");
+    return program;
+}
+
 // --------------------------------------------------
 // Buffer setup
 // --------------------------------------------------
@@ -665,8 +716,14 @@ void drawScene(float delta, GLFWwindow* window) {
 
     glBindVertexArray(skyboxVAO);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
-    glUniform1i(glGetUniformLocation(skyboxShaderID, "skybox"), 0);
+
+    if (useEquirectangular) {
+        glBindTexture(GL_TEXTURE_2D, skyboxTexture);
+        glUniform1i(glGetUniformLocation(skyboxShaderID, "equirectangularMap"), 0);
+    } else {
+        glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
+        glUniform1i(glGetUniformLocation(skyboxShaderID, "skybox"), 0);
+    }
 
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
@@ -723,12 +780,28 @@ int main() {
 
     // Setup galaxy skybox
     printf("\n=== Creating Galaxy Skybox ===\n");
-    skyboxShaderID = CompileSkyboxShaders();
     setupSkybox();
 
-    // Try to load skybox from image files first
-    printf("Attempting to load skybox from image files...\n");
-    skyboxTexture = loadCubemapFromFiles();
+    // Try loading equirectangular HDR first (single file)
+    printf("Attempting to load equirectangular HDR...\n");
+    const char* equirectFiles[] = {"skybox/environment.hdr", "skybox/skybox.hdr", "skybox/space.hdr"};
+    for (int i = 0; i < 3; i++) {
+        skyboxTexture = loadEquirectangularHDR(equirectFiles[i]);
+        if (skyboxTexture != 0) {
+            useEquirectangular = true;
+            skyboxShaderID = CompileEquirectShaders();
+            break;
+        }
+    }
+
+    // If equirectangular not found, try cubemap faces
+    if (skyboxTexture == 0) {
+        printf("Equirectangular HDR not found, trying cubemap faces...\n");
+        skyboxShaderID = CompileSkyboxShaders();
+        skyboxTexture = loadCubemapFromFiles();
+    }
+
+    // If neither found, fall back to procedural
     if (skyboxTexture == 0) {
         printf("Skybox images not found - using procedural generation as fallback\n");
         skyboxTexture = createGalaxyCubemap();
