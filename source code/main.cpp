@@ -113,6 +113,54 @@ GLuint loadTexture(const char* filename) {
 // --------------------------------------------------
 // Skybox / Galaxy creation
 // --------------------------------------------------
+GLuint loadCubemapFromFiles() {
+    const char* faces[6] = {
+        "skybox/right.jpg",   // +X
+        "skybox/left.jpg",    // -X
+        "skybox/top.jpg",     // +Y
+        "skybox/bottom.jpg",  // -Y
+        "skybox/front.jpg",   // +Z
+        "skybox/back.jpg"     // -Z
+    };
+
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    bool allLoaded = true;
+    for (unsigned int i = 0; i < 6; i++) {
+        int width, height, nrChannels;
+        unsigned char* data = stbi_load(faces[i], &width, &height, &nrChannels, 0);
+
+        if (data) {
+            GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
+                         width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+            printf("✓ Loaded skybox face: %s (%dx%d)\n", faces[i], width, height);
+        }
+        else {
+            printf("✗ Failed to load skybox face: %s\n", faces[i]);
+            allLoaded = false;
+            break;
+        }
+    }
+
+    if (!allLoaded) {
+        glDeleteTextures(1, &textureID);
+        return 0;  // Return 0 to indicate failure
+    }
+
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    printf("✓ Loaded cubemap skybox from image files\n");
+    return textureID;
+}
+
 GLuint createGalaxyCubemap() {
     GLuint textureID;
     glGenTextures(1, &textureID);
@@ -601,7 +649,14 @@ int main() {
     printf("\n=== Creating Galaxy Skybox ===\n");
     skyboxShaderID = CompileSkyboxShaders();
     setupSkybox();
-    skyboxTexture = createGalaxyCubemap();
+
+    // Try to load skybox from image files first
+    printf("Attempting to load skybox from image files...\n");
+    skyboxTexture = loadCubemapFromFiles();
+    if (skyboxTexture == 0) {
+        printf("Skybox images not found - using procedural generation as fallback\n");
+        skyboxTexture = createGalaxyCubemap();
+    }
 
     printf("\n=== Starting Render Loop ===\n");
     printf("Controls:\n");
