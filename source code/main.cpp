@@ -181,11 +181,18 @@ GLuint loadCubemapFromFiles() {
         return 0;  // Return 0 to indicate failure
     }
 
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Generate mipmaps for better quality
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+
+    // Use trilinear filtering for smoother appearance
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    // Enable seamless cubemap filtering to remove visible seams
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
     printf("✓ Loaded cubemap skybox from image files\n");
     return textureID;
@@ -288,11 +295,18 @@ GLuint createGalaxyCubemap() {
         delete[] data;
     }
 
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Generate mipmaps for better quality
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+
+    // Use trilinear filtering for smoother appearance
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    // Enable seamless cubemap filtering to remove visible seams
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
     printf("✓ Created procedural galaxy skybox with realistic starfield\n");
     return textureID;
