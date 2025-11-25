@@ -34,12 +34,20 @@ endif()
 # -----------------------------
 # Assimp (for orbital ring model loading) - OPTIONAL
 # -----------------------------
-find_package(assimp QUIET)
-if(assimp_FOUND OR TARGET assimp)
-    message(STATUS "Assimp found - orbital ring model loading enabled")
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/external/assimp/CMakeLists.txt")
+    message(STATUS "Building Assimp from source - orbital ring enabled")
+
+    # Disable unnecessary Assimp features to speed up build
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/assimp")
     set(HAVE_ASSIMP ON)
 else()
-    message(STATUS "Assimp not found - orbital ring will not be available")
+    message(STATUS "Assimp source not found - orbital ring will not be available")
     set(HAVE_ASSIMP OFF)
 endif()
 
