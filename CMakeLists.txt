@@ -32,14 +32,19 @@ else()
 endif()
 
 # -----------------------------
+# Assimp (for orbital ring model loading)
+# -----------------------------
+find_package(assimp REQUIRED)
+if(assimp_FOUND)
+    message(STATUS "Found Assimp: ${assimp_VERSION}")
+else()
+    message(FATAL_ERROR "Assimp not found. Please install Assimp library.")
+endif()
+
+# -----------------------------
 # glm
 # -----------------------------
 include_directories("${CMAKE_CURRENT_LIST_DIR}/external/glm-0.9.7.1")
-
-# -----------------------------
-# Assimp (not needed - using procedural sphere generation)
-# -----------------------------
-# Removed Assimp dependency since we're generating Earth sphere procedurally
 
 # -----------------------------
 # Lab 4 executable only
@@ -61,6 +66,7 @@ target_link_libraries(lab4_main PRIVATE
         ${OPENGL_LIBRARY}
         glfw
         glad
+        assimp::assimp
 )
 
 # Set EARTH_TEXTURE variable
@@ -101,4 +107,17 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/source code/skybox")
     message(STATUS "Skybox folder found - will be copied to build directory")
 else()
     message(STATUS "Note: skybox folder not found - app will use procedural fallback skybox")
+endif()
+
+# Copy orbital ring model folder if it exists
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/source code/orbital_ring")
+    add_custom_command(TARGET lab4_main POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_LIST_DIR}/source code/orbital_ring"
+            "$<TARGET_FILE_DIR:lab4_main>/orbital_ring"
+            COMMENT "Copying orbital ring model and textures to build directory"
+    )
+    message(STATUS "Orbital ring folder found - will be copied to build directory")
+else()
+    message(STATUS "Note: orbital ring folder not found - ring will not be rendered")
 endif()
