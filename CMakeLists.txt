@@ -32,13 +32,15 @@ else()
 endif()
 
 # -----------------------------
-# Assimp (for orbital ring model loading)
+# Assimp (for orbital ring model loading) - OPTIONAL
 # -----------------------------
-find_package(assimp REQUIRED)
-if(assimp_FOUND)
-    message(STATUS "Found Assimp: ${assimp_VERSION}")
+find_package(assimp QUIET)
+if(assimp_FOUND OR TARGET assimp)
+    message(STATUS "Assimp found - orbital ring model loading enabled")
+    set(HAVE_ASSIMP ON)
 else()
-    message(FATAL_ERROR "Assimp not found. Please install Assimp library.")
+    message(STATUS "Assimp not found - orbital ring will not be available")
+    set(HAVE_ASSIMP OFF)
 endif()
 
 # -----------------------------
@@ -66,8 +68,12 @@ target_link_libraries(lab4_main PRIVATE
         ${OPENGL_LIBRARY}
         glfw
         glad
-        assimp::assimp
 )
+
+if(HAVE_ASSIMP)
+    target_link_libraries(lab4_main PRIVATE assimp)
+    target_compile_definitions(lab4_main PRIVATE HAVE_ASSIMP)
+endif()
 
 # Set EARTH_TEXTURE variable
 set(EARTH_TEXTURE "earth_color.jpg")
@@ -80,6 +86,8 @@ add_custom_command(TARGET lab4_main POST_BUILD
         "${CMAKE_CURRENT_LIST_DIR}/source code/skyboxVertexShader.txt"
         "${CMAKE_CURRENT_LIST_DIR}/source code/skyboxFragmentShader.txt"
         "${CMAKE_CURRENT_LIST_DIR}/source code/skyboxEquirectFragmentShader.txt"
+        "${CMAKE_CURRENT_LIST_DIR}/source code/pbrVertexShader.txt"
+        "${CMAKE_CURRENT_LIST_DIR}/source code/pbrFragmentShader.txt"
         $<TARGET_FILE_DIR:lab4_main>
         COMMENT "Copying shader files to build directory"
 )

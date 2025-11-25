@@ -12,6 +12,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+// Assimp for model loading (optional)
+#ifdef HAVE_ASSIMP
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#endif
+
 #define EARTH_TEXTURE "earth_color.jpg"
 
 // Global variables
@@ -44,6 +51,22 @@ GLuint skyboxVAO = 0;
 GLuint skyboxVBO = 0;
 GLuint skyboxTexture = 0;
 GLuint skyboxShaderID = 0;
+
+// Orbital Ring variables
+GLuint ringVAO = 0;
+GLuint ringVBO = 0;
+GLuint ringEBO = 0;
+GLuint ringShaderID = 0;
+GLuint ringVertexCount = 0;
+GLuint ringIndexCount = 0;
+GLuint ringAlbedoTex = 0;
+GLuint ringRoughnessTex = 0;
+GLuint ringMetallicTex = 0;
+GLuint ringAOTex = 0;
+GLuint ringNormalTex = 0;
+GLuint ringEmissiveTex = 0;
+bool hasRingModel = false;
+float ring_rotate_y = 0.0f;
 
 // --------------------------------------------------
 // Texture loading
@@ -275,6 +298,25 @@ GLuint CompileSkyboxShaders() {
     return program;
 }
 
+GLuint CompilePBRShaders() {
+    GLuint program = glCreateProgram();
+    AddShader(program, "pbrVertexShader.txt", GL_VERTEX_SHADER);
+    AddShader(program, "pbrFragmentShader.txt", GL_FRAGMENT_SHADER);
+
+    glLinkProgram(program);
+    GLint success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        GLchar log[1024];
+        glGetProgramInfoLog(program, 1024, nullptr, log);
+        std::cerr << "PBR shader link error: " << log << std::endl;
+        exit(1);
+    }
+
+    printf("✓ PBR shaders compiled\n");
+    return program;
+}
+
 // --------------------------------------------------
 // Buffer setup
 // --------------------------------------------------
@@ -324,6 +366,141 @@ void generateEarthSphere() {
                  earth_sphere.indices.data(), GL_STATIC_DRAW);
 
     glBindVertexArray(0);
+}
+
+void loadOrbitalRing() {
+    printf("\n=== Loading Orbital Ring Model ===\n");
+
+#ifdef HAVE_ASSIMP
+    // Try loading the model
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile("orbital_ring/model.obj",
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+        printf("✗ Failed to load orbital ring model: %s\n", importer.GetErrorString());
+        hasRingModel = false;
+        return;
+    }
+
+    // Assume first mesh
+    if (scene->mNumMeshes == 0) {
+        printf("✗ No meshes found in model\n");
+        hasRingModel = false;
+        return;
+    }
+
+    aiMesh* mesh = scene->mMeshes[0];
+    printf("✓ Loaded model: %d vertices, %d faces\n", mesh->mNumVertices, mesh->mNumFaces);
+
+    // Extract vertices, normals, texcoords, tangents
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+
+    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+        // Position
+        vertices.push_back(mesh->mVertices[i].x);
+        vertices.push_back(mesh->mVertices[i].y);
+        vertices.push_back(mesh->mVertices[i].z);
+
+        // Normal
+        vertices.push_back(mesh->mNormals[i].x);
+        vertices.push_back(mesh->mNormals[i].y);
+        vertices.push_back(mesh->mNormals[i].z);
+
+        // TexCoords
+        if (mesh->mTextureCoords[0]) {
+            vertices.push_back(mesh->mTextureCoords[0][i].x);
+            vertices.push_back(mesh->mTextureCoords[0][i].y);
+        } else {
+            vertices.push_back(0.0f);
+            vertices.push_back(0.0f);
+        }
+
+        // Tangent
+        if (mesh->mTangents) {
+            vertices.push_back(mesh->mTangents[i].x);
+            vertices.push_back(mesh->mTangents[i].y);
+            vertices.push_back(mesh->mTangents[i].z);
+        } else {
+            vertices.push_back(1.0f);
+            vertices.push_back(0.0f);
+            vertices.push_back(0.0f);
+        }
+    }
+
+    // Extract indices
+    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+        aiFace face = mesh->mFaces[i];
+        for (unsigned int j = 0; j < face.mNumIndices; j++) {
+            indices.push_back(face.mIndices[j]);
+        }
+    }
+
+    ringVertexCount = mesh->mNumVertices;
+    ringIndexCount = indices.size();
+
+    // Create VAO/VBO/EBO
+    glGenVertexArrays(1, &ringVAO);
+    glGenBuffers(1, &ringVBO);
+    glGenBuffers(1, &ringEBO);
+
+    glBindVertexArray(ringVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, ringVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ringEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+    // Vertex attributes: position(3) + normal(3) + texcoord(2) + tangent(3) = 11 floats
+    int stride = 11 * sizeof(float);
+
+    // Position
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+
+    // Normal
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+
+    // TexCoord
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
+
+    // Tangent
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+
+    glBindVertexArray(0);
+
+    // Load PBR textures
+    printf("Loading PBR textures...\n");
+    ringAlbedoTex = loadTexture("orbital_ring/albedo.png");
+    if (ringAlbedoTex == 0) ringAlbedoTex = loadTexture("orbital_ring/albedo.jpg");
+
+    ringRoughnessTex = loadTexture("orbital_ring/roughness.png");
+    if (ringRoughnessTex == 0) ringRoughnessTex = loadTexture("orbital_ring/roughness.jpg");
+
+    ringMetallicTex = loadTexture("orbital_ring/metallic.png");
+    if (ringMetallicTex == 0) ringMetallicTex = loadTexture("orbital_ring/metallic.jpg");
+
+    ringAOTex = loadTexture("orbital_ring/ao.png");
+    if (ringAOTex == 0) ringAOTex = loadTexture("orbital_ring/ao.jpg");
+
+    ringNormalTex = loadTexture("orbital_ring/normal.png");
+    if (ringNormalTex == 0) ringNormalTex = loadTexture("orbital_ring/normal.jpg");
+
+    ringEmissiveTex = loadTexture("orbital_ring/emissive.png");
+    if (ringEmissiveTex == 0) ringEmissiveTex = loadTexture("orbital_ring/emissive.jpg");
+
+    hasRingModel = true;
+    printf("✓ Orbital ring model loaded successfully\n");
+#else
+    printf("✗ Assimp not available - orbital ring cannot be loaded\n");
+    printf("  To enable orbital ring: install Assimp library\n");
+    hasRingModel = false;
+#endif
 }
 
 // --------------------------------------------------
@@ -458,6 +635,64 @@ void drawScene(float delta, GLFWwindow* window) {
 
     glBindVertexArray(0);
 
+    // Draw orbital ring (if loaded)
+    if (hasRingModel) {
+        // Update ring rotation (slower than Earth)
+        ring_rotate_y = fmodf(ring_rotate_y + 5.0f * delta, 360.0f);
+
+        glUseProgram(ringShaderID);
+        glBindVertexArray(ringVAO);
+
+        // Ring transformation (scale, tilt, rotate)
+        mat4 ringModel = identity_mat4();
+        ringModel = rotate_y_deg(ringModel, ring_rotate_y);
+        ringModel = rotate_x_deg(ringModel, 15.0f);  // Tilt the ring
+        ringModel = scale(ringModel, vec3(3.5f, 3.5f, 3.5f));  // Scale larger than Earth
+
+        glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "model"), 1, GL_FALSE, ringModel.m);
+        glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "view"), 1, GL_FALSE, view.m);
+        glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "proj"), 1, GL_FALSE, proj.m);
+
+        // Set lighting uniforms
+        glUniform3f(glGetUniformLocation(ringShaderID, "lightPos"), lightPos.v[0], lightPos.v[1], lightPos.v[2]);
+        glUniform3f(glGetUniformLocation(ringShaderID, "viewPos"), cameraPos.v[0], cameraPos.v[1], cameraPos.v[2]);
+        glUniform3f(glGetUniformLocation(ringShaderID, "lightColor"), lightColor.v[0], lightColor.v[1], lightColor.v[2]);
+
+        // Bind PBR textures
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, ringAlbedoTex);
+        glUniform1i(glGetUniformLocation(ringShaderID, "albedoMap"), 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, ringRoughnessTex);
+        glUniform1i(glGetUniformLocation(ringShaderID, "roughnessMap"), 1);
+
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, ringMetallicTex);
+        glUniform1i(glGetUniformLocation(ringShaderID, "metallicMap"), 2);
+
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, ringAOTex);
+        glUniform1i(glGetUniformLocation(ringShaderID, "aoMap"), 3);
+
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, ringNormalTex);
+        glUniform1i(glGetUniformLocation(ringShaderID, "normalMap"), 4);
+
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, ringEmissiveTex);
+        glUniform1i(glGetUniformLocation(ringShaderID, "emissiveMap"), 5);
+
+        // Set texture availability flags
+        glUniform1i(glGetUniformLocation(ringShaderID, "hasNormalMap"), ringNormalTex != 0);
+        glUniform1i(glGetUniformLocation(ringShaderID, "hasEmissiveMap"), ringEmissiveTex != 0);
+
+        // Draw ring
+        glDrawElements(GL_TRIANGLES, ringIndexCount, GL_UNSIGNED_INT, 0);
+
+        glBindVertexArray(0);
+    }
+
     // Draw skybox (render last with depth = 1.0)
     glDepthFunc(GL_LEQUAL);
     glUseProgram(skyboxShaderID);
@@ -550,6 +785,10 @@ int main() {
         glfwTerminate();
         return -1;
     }
+
+    // Load orbital ring (optional)
+    ringShaderID = CompilePBRShaders();
+    loadOrbitalRing();
 
     printf("\n=== Starting Render Loop ===\n");
     printf("Controls:\n");
