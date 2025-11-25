@@ -643,11 +643,12 @@ void drawScene(float delta, GLFWwindow* window) {
         glUseProgram(ringShaderID);
         glBindVertexArray(ringVAO);
 
-        // Ring transformation (scale, tilt, rotate)
+        // Ring transformation (scale, orient, tilt, rotate)
         mat4 ringModel = identity_mat4();
-        ringModel = rotate_y_deg(ringModel, ring_rotate_y);
-        ringModel = rotate_x_deg(ringModel, 15.0f);  // Tilt the ring
-        ringModel = scale(ringModel, vec3(3.5f, 3.5f, 3.5f));  // Scale larger than Earth
+        ringModel = rotate_y_deg(ringModel, ring_rotate_y);  // Animated rotation
+        ringModel = rotate_x_deg(ringModel, 90.0f);  // Orient ring horizontally around equator
+        ringModel = rotate_z_deg(ringModel, 15.0f);  // Optional tilt for visual interest
+        ringModel = scale(ringModel, vec3(1.8f, 1.8f, 1.8f));  // Scale to fit around Earth
 
         glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "model"), 1, GL_FALSE, ringModel.m);
         glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "view"), 1, GL_FALSE, view.m);
