@@ -106,23 +106,23 @@ void main() {
     vec3 kD = vec3(1.0) - kS;
     kD *= 1.0 - metallic;
 
-    // Main light with strong intensity
+    // Main light with very strong intensity
     float distance = length(lightPos - FragPos);
-    float attenuation = 1.0 / (1.0 + 0.01 * distance);
-    vec3 radiance = lightColor * attenuation * 8.0; // Much stronger light
+    float attenuation = 1.0 / (1.0 + 0.005 * distance);
+    vec3 radiance = lightColor * attenuation * 15.0; // Extremely strong light
 
     float NdotL = max(dot(N, L), 0.0);
     vec3 Lo = (kD * albedo / PI + specular) * radiance * NdotL;
 
-    // Add fill lights from multiple directions for even illumination
+    // Add strong fill lights from multiple directions
     vec3 fillLight1 = normalize(vec3(-10.0, -5.0, 0.0) - FragPos);
     vec3 fillLight2 = normalize(vec3(0.0, -10.0, 10.0) - FragPos);
-    float fill1 = max(dot(N, fillLight1), 0.0) * 0.4;
-    float fill2 = max(dot(N, fillLight2), 0.0) * 0.4;
+    float fill1 = max(dot(N, fillLight1), 0.0) * 0.8;
+    float fill2 = max(dot(N, fillLight2), 0.0) * 0.8;
     vec3 fillLighting = (fill1 + fill2) * albedo;
 
-    // Very strong ambient lighting for space station visibility
-    vec3 ambient = vec3(0.8) * albedo * mix(1.0, ao, 0.3); // Reduce AO impact
+    // Maximum ambient lighting for maximum visibility
+    vec3 ambient = vec3(1.5) * albedo * mix(1.0, ao, 0.2); // Very bright ambient
 
     vec3 color = ambient + Lo + fillLighting;
 

@@ -655,7 +655,7 @@ void drawScene(float delta, GLFWwindow* window) {
 
         // Dedicated ring light - positioned close to ring for strong illumination
         vec3 ringLightPos = vec3(0.0f, 3.0f, 0.0f);  // Above the ring
-        vec3 ringLightColor = vec3(2.5f, 2.5f, 2.5f);  // Bright white light (2.5x intensity)
+        vec3 ringLightColor = vec3(8.0f, 8.0f, 8.0f);  // Very bright white light (8x intensity)
 
         glUniform3f(glGetUniformLocation(ringShaderID, "lightPos"), ringLightPos.v[0], ringLightPos.v[1], ringLightPos.v[2]);
         glUniform3f(glGetUniformLocation(ringShaderID, "viewPos"), cameraPos.v[0], cameraPos.v[1], cameraPos.v[2]);
