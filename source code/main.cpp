@@ -675,14 +675,16 @@ void updateTurrets(float deltaTime) {
             turrets[i].rotationY = atan2(toTarget.v[0], toTarget.v[2]) * 180.0f / 3.14159f;
             turrets[i].rotationX = -asin(toTarget.v[1]) * 180.0f / 3.14159f;
 
-            // Check if aimed close enough to fire
-            float aimAccuracy = dot(toTarget, toTarget);  // Simplified check
-            turrets[i].isFiring = (aimAccuracy > 0.95f);
+            // Fire only if in range (don't auto-destroy)
+            turrets[i].isFiring = (nearestDist < 12.0f);  // Fire within 12 units
 
-            // Destroy comet if firing
-            if (turrets[i].isFiring && nearestDist < 15.0f) {
-                comets[nearestIndex].active = false;
-                turrets[i].isFiring = false;  // Stop firing for this frame
+            // Slowly damage comet (destroy after multiple hits)
+            if (turrets[i].isFiring) {
+                // Simple health system - reduce comet scale
+                comets[nearestIndex].scale -= deltaTime * 0.3f;
+                if (comets[nearestIndex].scale <= 0.05f) {
+                    comets[nearestIndex].active = false;  // Destroyed
+                }
             }
         } else {
             turrets[i].isFiring = false;
@@ -690,9 +692,12 @@ void updateTurrets(float deltaTime) {
     }
 }
 
-void renderLasers() {
+void renderLasers(mat4 view, mat4 proj) {
     glUseProgram(shaderProgramID);
-    glDisable(GL_DEPTH_TEST);  // Draw lasers on top
+
+    // Set view and projection matrices
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "proj"), 1, GL_FALSE, proj.m);
 
     for (int i = 0; i < NUM_TURRETS; i++) {
         if (turrets[i].isFiring && turrets[i].targetCometIndex >= 0) {
@@ -715,10 +720,14 @@ void renderLasers() {
                 glEnableVertexAttribArray(0);
                 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
-                // Set bright color for laser
-                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.0f, 1.0f, 0.0f);  // Green laser
+                // Identity model matrix for lasers (already in world space)
+                mat4 laserModel = identity_mat4();
+                glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "model"), 1, GL_FALSE, laserModel.m);
 
-                glLineWidth(3.0f);
+                // Bright green color for laser
+                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.0f, 2.0f, 0.0f);  // Bright green
+
+                glLineWidth(5.0f);  // Thicker laser
                 glDrawArrays(GL_LINES, 0, 2);
 
                 glDeleteBuffers(1, &laserVBO);
@@ -726,8 +735,6 @@ void renderLasers() {
             }
         }
     }
-
-    glEnable(GL_DEPTH_TEST);
 }
 
 // --------------------------------------------------
@@ -978,7 +985,7 @@ void drawScene(float delta, GLFWwindow* window) {
     }
 
     // Draw laser beams
-    renderLasers();
+    renderLasers(view, proj);
 
     // Draw skybox (render last with depth = 1.0)
     glDepthFunc(GL_LEQUAL);
