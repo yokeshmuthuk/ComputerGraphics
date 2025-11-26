@@ -645,7 +645,7 @@ void drawScene(float delta, GLFWwindow* window) {
 
         // Ring transformation (horizontal, static, around Earth)
         mat4 ringModel = identity_mat4();
-        ringModel = scale(ringModel, vec3(1.5f, 1.5f, 1.5f));  // Scale larger than Earth
+        ringModel = scale(ringModel, vec3(1.2f, 1.2f, 1.2f));  // Scale slightly larger than Earth
         ringModel = rotate_x_deg(ringModel, 90.0f);  // Rotate to lie flat (horizontal around equator)
         // No rotation animation - static ring
 
