@@ -66,8 +66,9 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 }
 
 void main() {
-    // Sample textures
+    // Sample textures and boost albedo brightness
     vec3 albedo = pow(texture(albedoMap, TexCoords).rgb, vec3(2.2)); // sRGB to linear
+    albedo *= 3.0; // Boost albedo brightness significantly
     float roughness = texture(roughnessMap, TexCoords).r;
     float metallic = texture(metallicMap, TexCoords).r;
     float ao = texture(aoMap, TexCoords).r;
@@ -126,17 +127,20 @@ void main() {
 
     vec3 color = ambient + Lo + fillLighting;
 
-    // Add emissive
+    // Add boosted emissive for glow
     if (hasEmissiveMap) {
         vec3 emissive = texture(emissiveMap, TexCoords).rgb;
-        color += emissive;
+        color += emissive * 2.0; // Boost emissive glow
     }
 
-    // HDR tonemapping (ACES)
-    color = color / (color + vec3(1.0));
+    // Add minimum brightness floor
+    color = max(color, vec3(0.15));
 
-    // Gamma correction
-    color = pow(color, vec3(1.0/2.2));
+    // Reduced tone mapping for brighter output
+    color = color / (color + vec3(0.5)); // Less aggressive compression
+
+    // Brightened gamma correction
+    color = pow(color, vec3(1.0/2.5)); // Brighter gamma (was 2.2)
 
     FragColor = vec4(color, 1.0);
 }
