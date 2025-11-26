@@ -13,6 +13,8 @@ out vec4 FragColor;
 // Uniforms
 uniform sampler2D earthTexture;
 uniform vec3 lightColor;
+uniform vec3 objectColor;      // Solid color for non-textured objects
+uniform int useTexture;        // 1 = use texture, 0 = use objectColor
 
 // Advanced Lighting Parameters (Phong Model)
 uniform float ambientStrength;
@@ -21,8 +23,13 @@ uniform float specularStrength;
 uniform float shininess;
 
 void main() {
-    // Sample texture
-    vec3 textureColor = texture(earthTexture, TexCoord).rgb;
+    // Get base color (either from texture or solid color)
+    vec3 baseColor;
+    if (useTexture == 1) {
+        baseColor = texture(earthTexture, TexCoord).rgb;
+    } else {
+        baseColor = objectColor;
+    }
 
     // Normalize interpolated vectors
     vec3 norm = normalize(Normal);
@@ -41,8 +48,8 @@ void main() {
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
     vec3 specular = specularStrength * spec * lightColor;
 
-    // Combine all lighting components with texture
-    vec3 result = (ambient + diffuse + specular) * textureColor;
+    // Combine all lighting components with base color
+    vec3 result = (ambient + diffuse + specular) * baseColor;
 
     FragColor = vec4(result, 1.0);
 }

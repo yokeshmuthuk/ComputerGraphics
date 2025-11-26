@@ -701,14 +701,23 @@ void renderLasers(mat4 view, mat4 proj) {
     glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
     glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "proj"), 1, GL_FALSE, proj.m);
 
+    // Use solid color mode (no texture)
+    glUniform1i(glGetUniformLocation(shaderProgramID, "useTexture"), 0);
+
+    // Set lighting parameters for bright emission effect
+    glUniform1f(glGetUniformLocation(shaderProgramID, "ambientStrength"), 1.0f);  // Full ambient = emissive
+    glUniform1f(glGetUniformLocation(shaderProgramID, "diffuseStrength"), 0.0f);
+    glUniform1f(glGetUniformLocation(shaderProgramID, "specularStrength"), 0.0f);
+
     for (int i = 0; i < NUM_TURRETS; i++) {
         if (turrets[i].isFiring && turrets[i].targetCometIndex >= 0) {
             int targetIdx = turrets[i].targetCometIndex;
             if (comets[targetIdx].active) {
-                // Create line geometry for laser
+                // Create line geometry for laser with normals and texcoords
                 float laserVerts[] = {
-                    turrets[i].position.v[0], turrets[i].position.v[1], turrets[i].position.v[2],
-                    comets[targetIdx].position.v[0], comets[targetIdx].position.v[1], comets[targetIdx].position.v[2]
+                    // Position (x,y,z), Normal (0,1,0), TexCoord (0,0)
+                    turrets[i].position.v[0], turrets[i].position.v[1], turrets[i].position.v[2], 0,1,0, 0,0,
+                    comets[targetIdx].position.v[0], comets[targetIdx].position.v[1], comets[targetIdx].position.v[2], 0,1,0, 0,0
                 };
 
                 GLuint laserVBO, laserVAO;
@@ -719,21 +728,28 @@ void renderLasers(mat4 view, mat4 proj) {
                 glBindBuffer(GL_ARRAY_BUFFER, laserVBO);
                 glBufferData(GL_ARRAY_BUFFER, sizeof(laserVerts), laserVerts, GL_STATIC_DRAW);
 
+                // Position attribute
                 glEnableVertexAttribArray(0);
-                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+                // Normal attribute
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+                // TexCoord attribute
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
 
                 // Identity model matrix for lasers (already in world space)
                 mat4 laserModel = identity_mat4();
                 glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "model"), 1, GL_FALSE, laserModel.m);
 
                 // Render outer glow (thicker, dimmer)
-                glLineWidth(10.0f);
-                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.0f, 3.0f, 0.0f);
+                glLineWidth(15.0f);
+                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.0f, 5.0f, 0.0f);
                 glDrawArrays(GL_LINES, 0, 2);
 
-                // Render inner core (thinner, brighter)
-                glLineWidth(3.0f);
-                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.5f, 8.0f, 0.5f);
+                // Render inner core (thinner, super bright)
+                glLineWidth(5.0f);
+                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 2.0f, 10.0f, 2.0f);
                 glDrawArrays(GL_LINES, 0, 2);
 
                 glDeleteBuffers(1, &laserVBO);
@@ -841,6 +857,7 @@ void drawScene(float delta, GLFWwindow* window) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, earthTexture);
     glUniform1i(glGetUniformLocation(shaderProgramID, "earthTexture"), 0);
+    glUniform1i(glGetUniformLocation(shaderProgramID, "useTexture"), 1);  // Use texture for Earth
 
     // Set up transformation matrices
     int model_loc = glGetUniformLocation(shaderProgramID, "model");
@@ -959,7 +976,7 @@ void drawScene(float delta, GLFWwindow* window) {
             turretModel = translate(turretModel, turrets[i].position);
             turretModel = rotate_y_deg(turretModel, turrets[i].rotationY);
             turretModel = rotate_x_deg(turretModel, turrets[i].rotationX);
-            turretModel = scale(turretModel, vec3(0.1f, 0.1f, 0.1f));  // Bigger for visibility
+            turretModel = scale(turretModel, vec3(1.0f, 1.0f, 1.0f));  // 10x bigger (was 0.1)
 
             glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "model"), 1, GL_FALSE, turretModel.m);
             glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
@@ -967,11 +984,19 @@ void drawScene(float delta, GLFWwindow* window) {
 
             // Set lighting uniforms for turrets
             glUniform3f(glGetUniformLocation(shaderProgramID, "lightPos"), lightPos.v[0], lightPos.v[1], lightPos.v[2]);
-            glUniform3f(glGetUniformLocation(shaderProgramID, "viewPos"), cameraPos.v[0], cameraPos.v[1], cameraPos.v[2]);
             glUniform3f(glGetUniformLocation(shaderProgramID, "lightColor"), lightColor.v[0], lightColor.v[1], lightColor.v[2]);
 
-            // Bright metallic color for turrets (cyan when firing, bright gray otherwise)
-            vec3 turretColor = turrets[i].isFiring ? vec3(0.0f, 2.0f, 2.0f) : vec3(1.5f, 1.5f, 1.5f);
+            // Phong lighting parameters
+            glUniform1f(glGetUniformLocation(shaderProgramID, "ambientStrength"), 0.5f);
+            glUniform1f(glGetUniformLocation(shaderProgramID, "diffuseStrength"), 0.8f);
+            glUniform1f(glGetUniformLocation(shaderProgramID, "specularStrength"), 0.5f);
+            glUniform1f(glGetUniformLocation(shaderProgramID, "shininess"), 64.0f);
+
+            // Use solid color (not texture)
+            glUniform1i(glGetUniformLocation(shaderProgramID, "useTexture"), 0);
+
+            // Bright metallic color for turrets (bright cyan when firing, bright yellow otherwise)
+            vec3 turretColor = turrets[i].isFiring ? vec3(0.0f, 3.0f, 3.0f) : vec3(3.0f, 3.0f, 0.0f);
             glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), turretColor.v[0], turretColor.v[1], turretColor.v[2]);
 
             glBindVertexArray(turretVAO);
@@ -998,13 +1023,21 @@ void drawScene(float delta, GLFWwindow* window) {
             glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
             glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "proj"), 1, GL_FALSE, proj.m);
 
-            // Set lighting (same as Earth)
+            // Set lighting
             glUniform3f(glGetUniformLocation(shaderProgramID, "lightPos"), lightPos.v[0], lightPos.v[1], lightPos.v[2]);
-            glUniform3f(glGetUniformLocation(shaderProgramID, "viewPos"), cameraPos.v[0], cameraPos.v[1], cameraPos.v[2]);
             glUniform3f(glGetUniformLocation(shaderProgramID, "lightColor"), lightColor.v[0], lightColor.v[1], lightColor.v[2]);
 
+            // Phong lighting parameters (high ambient so comets are always visible)
+            glUniform1f(glGetUniformLocation(shaderProgramID, "ambientStrength"), 0.6f);
+            glUniform1f(glGetUniformLocation(shaderProgramID, "diffuseStrength"), 0.7f);
+            glUniform1f(glGetUniformLocation(shaderProgramID, "specularStrength"), 0.3f);
+            glUniform1f(glGetUniformLocation(shaderProgramID, "shininess"), 16.0f);
+
+            // Use solid color (not texture)
+            glUniform1i(glGetUniformLocation(shaderProgramID, "useTexture"), 0);
+
             // Bright orange/red color for comets (visible asteroids)
-            glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 1.2f, 0.4f, 0.1f);
+            glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 2.0f, 0.6f, 0.2f);
 
             glBindVertexArray(vao);  // Reuse Earth sphere for comets
             glDrawElements(GL_TRIANGLES, earth_sphere.indexCount, GL_UNSIGNED_INT, 0);
