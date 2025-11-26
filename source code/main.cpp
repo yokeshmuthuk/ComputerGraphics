@@ -653,10 +653,13 @@ void drawScene(float delta, GLFWwindow* window) {
         glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "view"), 1, GL_FALSE, view.m);
         glUniformMatrix4fv(glGetUniformLocation(ringShaderID, "proj"), 1, GL_FALSE, proj.m);
 
-        // Set lighting uniforms
-        glUniform3f(glGetUniformLocation(ringShaderID, "lightPos"), lightPos.v[0], lightPos.v[1], lightPos.v[2]);
+        // Dedicated ring light - positioned close to ring for strong illumination
+        vec3 ringLightPos = vec3(0.0f, 3.0f, 0.0f);  // Above the ring
+        vec3 ringLightColor = vec3(2.5f, 2.5f, 2.5f);  // Bright white light (2.5x intensity)
+
+        glUniform3f(glGetUniformLocation(ringShaderID, "lightPos"), ringLightPos.v[0], ringLightPos.v[1], ringLightPos.v[2]);
         glUniform3f(glGetUniformLocation(ringShaderID, "viewPos"), cameraPos.v[0], cameraPos.v[1], cameraPos.v[2]);
-        glUniform3f(glGetUniformLocation(ringShaderID, "lightColor"), lightColor.v[0], lightColor.v[1], lightColor.v[2]);
+        glUniform3f(glGetUniformLocation(ringShaderID, "lightColor"), ringLightColor.v[0], ringLightColor.v[1], ringLightColor.v[2]);
 
         // Bind PBR textures
         glActiveTexture(GL_TEXTURE0);
