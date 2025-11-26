@@ -137,3 +137,16 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/source code/orbital_ring")
 else()
     message(STATUS "Note: orbital ring folder not found - ring will not be rendered")
 endif()
+
+# Copy turret model folder if it exists
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/source code/turret")
+    add_custom_command(TARGET lab4_main POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_LIST_DIR}/source code/turret"
+            "$<TARGET_FILE_DIR:lab4_main>/turret"
+            COMMENT "Copying turret model to build directory"
+    )
+    message(STATUS "Turret folder found - will be copied to build directory")
+else()
+    message(STATUS "Note: turret folder not found - turrets will not be rendered")
+endif()
