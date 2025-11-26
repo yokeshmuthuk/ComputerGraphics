@@ -68,6 +68,34 @@ GLuint ringEmissiveTex = 0;
 bool hasRingModel = false;
 float ring_rotate_y = 0.0f;
 
+// Turret system variables
+const int NUM_TURRETS = 6;
+struct Turret {
+    vec3 position;
+    float rotationY;  // Rotation around Y axis to face target
+    float rotationX;  // Pitch to aim at target
+    int targetCometIndex;  // Which comet is this turret tracking
+    bool isFiring;
+};
+Turret turrets[NUM_TURRETS];
+GLuint turretVAO = 0;
+GLuint turretVBO = 0;
+GLuint turretEBO = 0;
+GLuint turretIndexCount = 0;
+bool hasTurretModel = false;
+
+// Comet system variables
+const int MAX_COMETS = 10;
+struct Comet {
+    vec3 position;
+    vec3 velocity;
+    float scale;
+    bool active;
+};
+Comet comets[MAX_COMETS];
+float cometSpawnTimer = 0.0f;
+const float COMET_SPAWN_INTERVAL = 3.0f;  // Spawn every 3 seconds
+
 // --------------------------------------------------
 // Texture loading
 // --------------------------------------------------
@@ -504,6 +532,205 @@ void loadOrbitalRing() {
 }
 
 // --------------------------------------------------
+// Turret Defense System
+// --------------------------------------------------
+
+void loadTurretModel() {
+    printf("\n=== Loading Turret Model ===\n");
+#ifdef HAVE_ASSIMP
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile("turret/model.obj",
+        aiProcess_Triangulate | aiProcess_FlipUVs);
+
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode || scene->mNumMeshes == 0) {
+        printf("✗ Failed to load turret model - using fallback\n");
+        hasTurretModel = false;
+        return;
+    }
+
+    aiMesh* mesh = scene->mMeshes[0];
+    printf("✓ Loaded turret: %d vertices, %d faces\n", mesh->mNumVertices, mesh->mNumFaces);
+
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+
+    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+        vertices.push_back(mesh->mVertices[i].x);
+        vertices.push_back(mesh->mVertices[i].y);
+        vertices.push_back(mesh->mVertices[i].z);
+        vertices.push_back(mesh->mNormals[i].x);
+        vertices.push_back(mesh->mNormals[i].y);
+        vertices.push_back(mesh->mNormals[i].z);
+    }
+
+    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+        aiFace face = mesh->mFaces[i];
+        for (unsigned int j = 0; j < face.mNumIndices; j++) {
+            indices.push_back(face.mIndices[j]);
+        }
+    }
+
+    turretIndexCount = indices.size();
+
+    glGenVertexArrays(1, &turretVAO);
+    glGenBuffers(1, &turretVBO);
+    glGenBuffers(1, &turretEBO);
+
+    glBindVertexArray(turretVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, turretVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, turretEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+
+    glBindVertexArray(0);
+    hasTurretModel = true;
+#else
+    printf("✗ Assimp not available - cannot load turret\n");
+    hasTurretModel = false;
+#endif
+}
+
+void initializeTurrets() {
+    float ringRadius = 0.08f * 1.5f;  // Ring scale * approximate radius
+    for (int i = 0; i < NUM_TURRETS; i++) {
+        float angle = (360.0f / NUM_TURRETS) * i;
+        float rad = angle * 3.14159f / 180.0f;
+        turrets[i].position = vec3(cos(rad) * ringRadius, 0.0f, sin(rad) * ringRadius);
+        turrets[i].rotationY = angle;
+        turrets[i].rotationX = 0.0f;
+        turrets[i].targetCometIndex = -1;
+        turrets[i].isFiring = false;
+    }
+    printf("✓ Initialized %d turrets around ring\n", NUM_TURRETS);
+}
+
+void spawnComet() {
+    for (int i = 0; i < MAX_COMETS; i++) {
+        if (!comets[i].active) {
+            // Random position far from Earth
+            float angle1 = (rand() % 360) * 3.14159f / 180.0f;
+            float angle2 = (rand() % 360) * 3.14159f / 180.0f;
+            float distance = 15.0f + (rand() % 10);
+
+            comets[i].position = vec3(
+                sin(angle1) * cos(angle2) * distance,
+                sin(angle2) * distance,
+                cos(angle1) * cos(angle2) * distance
+            );
+
+            // Velocity towards Earth
+            vec3 toEarth = normalise(vec3(0,0,0) - comets[i].position);
+            float speed = 0.5f + (rand() % 100) / 200.0f;  // 0.5 to 1.0
+            comets[i].velocity = toEarth * speed;
+            comets[i].scale = 0.2f + (rand() % 100) / 500.0f;
+            comets[i].active = true;
+            break;
+        }
+    }
+}
+
+void updateComets(float deltaTime) {
+    for (int i = 0; i < MAX_COMETS; i++) {
+        if (comets[i].active) {
+            comets[i].position = comets[i].position + comets[i].velocity * deltaTime;
+
+            // Deactivate if too close to Earth or too far
+            float dist = length(comets[i].position);
+            if (dist < 1.5f || dist > 30.0f) {
+                comets[i].active = false;
+            }
+        }
+    }
+}
+
+void updateTurrets(float deltaTime) {
+    for (int i = 0; i < NUM_TURRETS; i++) {
+        // Find nearest comet
+        float nearestDist = 999999.0f;
+        int nearestIndex = -1;
+
+        for (int j = 0; j < MAX_COMETS; j++) {
+            if (comets[j].active) {
+                float dist = length(comets[j].position - turrets[i].position);
+                if (dist < nearestDist && dist < 20.0f) {  // 20 unit range
+                    nearestDist = dist;
+                    nearestIndex = j;
+                }
+            }
+        }
+
+        turrets[i].targetCometIndex = nearestIndex;
+
+        if (nearestIndex >= 0) {
+            // Calculate direction to target
+            vec3 toTarget = normalise(comets[nearestIndex].position - turrets[i].position);
+
+            // Calculate rotation angles
+            turrets[i].rotationY = atan2(toTarget.v[0], toTarget.v[2]) * 180.0f / 3.14159f;
+            turrets[i].rotationX = -asin(toTarget.v[1]) * 180.0f / 3.14159f;
+
+            // Check if aimed close enough to fire
+            float aimAccuracy = dot(toTarget, toTarget);  // Simplified check
+            turrets[i].isFiring = (aimAccuracy > 0.95f);
+
+            // Destroy comet if firing
+            if (turrets[i].isFiring && nearestDist < 15.0f) {
+                comets[nearestIndex].active = false;
+                turrets[i].isFiring = false;  // Stop firing for this frame
+            }
+        } else {
+            turrets[i].isFiring = false;
+        }
+    }
+}
+
+void renderLasers() {
+    glUseProgram(shaderProgramID);
+    glDisable(GL_DEPTH_TEST);  // Draw lasers on top
+
+    for (int i = 0; i < NUM_TURRETS; i++) {
+        if (turrets[i].isFiring && turrets[i].targetCometIndex >= 0) {
+            int targetIdx = turrets[i].targetCometIndex;
+            if (comets[targetIdx].active) {
+                // Create line geometry for laser
+                float laserVerts[] = {
+                    turrets[i].position.v[0], turrets[i].position.v[1], turrets[i].position.v[2],
+                    comets[targetIdx].position.v[0], comets[targetIdx].position.v[1], comets[targetIdx].position.v[2]
+                };
+
+                GLuint laserVBO, laserVAO;
+                glGenVertexArrays(1, &laserVAO);
+                glGenBuffers(1, &laserVBO);
+
+                glBindVertexArray(laserVAO);
+                glBindBuffer(GL_ARRAY_BUFFER, laserVBO);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(laserVerts), laserVerts, GL_STATIC_DRAW);
+
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+
+                // Set bright color for laser
+                glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.0f, 1.0f, 0.0f);  // Green laser
+
+                glLineWidth(3.0f);
+                glDrawArrays(GL_LINES, 0, 2);
+
+                glDeleteBuffers(1, &laserVBO);
+                glDeleteVertexArrays(1, &laserVAO);
+            }
+        }
+    }
+
+    glEnable(GL_DEPTH_TEST);
+}
+
+// --------------------------------------------------
 // Input Callbacks
 // --------------------------------------------------
 void processInput(GLFWwindow* window, float deltaTime) {
@@ -696,6 +923,63 @@ void drawScene(float delta, GLFWwindow* window) {
         glBindVertexArray(0);
     }
 
+    // Update and render turret defense system
+    updateTurrets(delta);
+    updateComets(delta);
+
+    // Spawn new comets periodically
+    cometSpawnTimer += delta;
+    if (cometSpawnTimer >= COMET_SPAWN_INTERVAL) {
+        spawnComet();
+        cometSpawnTimer = 0.0f;
+    }
+
+    // Draw turrets
+    if (hasTurretModel) {
+        glUseProgram(shaderProgramID);
+        for (int i = 0; i < NUM_TURRETS; i++) {
+            mat4 turretModel = identity_mat4();
+            turretModel = translate(turretModel, turrets[i].position);
+            turretModel = rotate_y_deg(turretModel, turrets[i].rotationY);
+            turretModel = rotate_x_deg(turretModel, turrets[i].rotationX);
+            turretModel = scale(turretModel, vec3(0.05f, 0.05f, 0.05f));
+
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "model"), 1, GL_FALSE, turretModel.m);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "proj"), 1, GL_FALSE, proj.m);
+
+            // Yellow/orange color for turrets
+            vec3 turretColor = turrets[i].isFiring ? vec3(1.0f, 0.3f, 0.0f) : vec3(0.7f, 0.7f, 0.5f);
+            glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), turretColor.v[0], turretColor.v[1], turretColor.v[2]);
+
+            glBindVertexArray(turretVAO);
+            glDrawElements(GL_TRIANGLES, turretIndexCount, GL_UNSIGNED_INT, 0);
+        }
+    }
+
+    // Draw comets
+    glUseProgram(shaderProgramID);
+    for (int i = 0; i < MAX_COMETS; i++) {
+        if (comets[i].active) {
+            mat4 cometModel = identity_mat4();
+            cometModel = translate(cometModel, comets[i].position);
+            cometModel = scale(cometModel, vec3(comets[i].scale, comets[i].scale, comets[i].scale));
+
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "model"), 1, GL_FALSE, cometModel.m);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "proj"), 1, GL_FALSE, proj.m);
+
+            // Gray/brown color for comets
+            glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.5f, 0.4f, 0.3f);
+
+            glBindVertexArray(vao);  // Reuse Earth sphere for comets
+            glDrawElements(GL_TRIANGLES, earth_sphere.indexCount, GL_UNSIGNED_INT, 0);
+        }
+    }
+
+    // Draw laser beams
+    renderLasers();
+
     // Draw skybox (render last with depth = 1.0)
     glDepthFunc(GL_LEQUAL);
     glUseProgram(skyboxShaderID);
@@ -792,6 +1076,16 @@ int main() {
     // Load orbital ring (optional)
     ringShaderID = CompilePBRShaders();
     loadOrbitalRing();
+
+    // Initialize turret defense system
+    loadTurretModel();
+    initializeTurrets();
+
+    // Initialize comets (all inactive at start)
+    for (int i = 0; i < MAX_COMETS; i++) {
+        comets[i].active = false;
+    }
+    printf("✓ Turret defense system initialized\n");
 
     printf("\n=== Starting Render Loop ===\n");
     printf("Controls:\n");
