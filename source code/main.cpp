@@ -597,7 +597,7 @@ void loadTurretModel() {
 }
 
 void initializeTurrets() {
-    float ringRadius = 0.08f * 1.5f;  // Ring scale * approximate radius
+    float ringRadius = 1.5f;  // Position turrets at proper distance on the ring
     for (int i = 0; i < NUM_TURRETS; i++) {
         float angle = (360.0f / NUM_TURRETS) * i;
         float rad = angle * 3.14159f / 180.0f;
@@ -607,7 +607,7 @@ void initializeTurrets() {
         turrets[i].targetCometIndex = -1;
         turrets[i].isFiring = false;
     }
-    printf("✓ Initialized %d turrets around ring\n", NUM_TURRETS);
+    printf("✓ Initialized %d turrets around ring at radius %.2f\n", NUM_TURRETS, ringRadius);
 }
 
 void spawnComet() {
@@ -675,16 +675,13 @@ void updateTurrets(float deltaTime) {
             turrets[i].rotationY = atan2(toTarget.v[0], toTarget.v[2]) * 180.0f / 3.14159f;
             turrets[i].rotationX = -asin(toTarget.v[1]) * 180.0f / 3.14159f;
 
-            // Fire only if in range (don't auto-destroy)
+            // Fire only if in range
             turrets[i].isFiring = (nearestDist < 12.0f);  // Fire within 12 units
 
-            // Slowly damage comet (destroy after multiple hits)
+            // Instant destruction when laser hits
             if (turrets[i].isFiring) {
-                // Simple health system - reduce comet scale
-                comets[nearestIndex].scale -= deltaTime * 0.3f;
-                if (comets[nearestIndex].scale <= 0.05f) {
-                    comets[nearestIndex].active = false;  // Destroyed
-                }
+                comets[nearestIndex].active = false;  // Destroyed instantly!
+                printf("Comet destroyed by turret %d!\n", i);
             }
         } else {
             turrets[i].isFiring = false;
@@ -964,8 +961,15 @@ void drawScene(float delta, GLFWwindow* window) {
         }
     }
 
-    // Draw comets
+    // Draw comets (unbind PBR textures first!)
     glUseProgram(shaderProgramID);
+
+    // Unbind all texture units to prevent PBR texture bleed
+    for (int texUnit = 0; texUnit < 6; texUnit++) {
+        glActiveTexture(GL_TEXTURE0 + texUnit);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
     for (int i = 0; i < MAX_COMETS; i++) {
         if (comets[i].active) {
             mat4 cometModel = identity_mat4();
@@ -976,8 +980,12 @@ void drawScene(float delta, GLFWwindow* window) {
             glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "view"), 1, GL_FALSE, view.m);
             glUniformMatrix4fv(glGetUniformLocation(shaderProgramID, "proj"), 1, GL_FALSE, proj.m);
 
-            // Gray/brown color for comets
-            glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.5f, 0.4f, 0.3f);
+            // Set lighting (same as Earth)
+            glUniform3f(glGetUniformLocation(shaderProgramID, "lightPos"), lightPos.v[0], lightPos.v[1], lightPos.v[2]);
+            glUniform3f(glGetUniformLocation(shaderProgramID, "lightColor"), lightColor.v[0], lightColor.v[1], lightColor.v[2]);
+
+            // Dark gray/brown color for comets
+            glUniform3f(glGetUniformLocation(shaderProgramID, "objectColor"), 0.3f, 0.25f, 0.2f);
 
             glBindVertexArray(vao);  // Reuse Earth sphere for comets
             glDrawElements(GL_TRIANGLES, earth_sphere.indexCount, GL_UNSIGNED_INT, 0);
